@@ -1,4 +1,4 @@
-# wp81wiimote2
+# Wp81Wiimote2
 
 Other demonstration of the usage of a Wiimote with Windows Phone 8.1  
 See also my previous projects on the same topic:  
