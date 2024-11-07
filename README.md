@@ -81,4 +81,5 @@ powertool -reboot
 
 > [!NOTE]
 > You can inspect the logs of the drivers using [wp81debug](https://github.com/fredericGette/wp81debug)  
-> `wp81debug.exe dbgprint | findstr /C:"Control!" /C:"HCI!"`  
+> `wp81debug.exe dbgprint | findstr /C:"Control!" /C:"HCI!"`
+> And parse them using [hciexplorer](https://github.com/fredericGette/hciexplorer) in *command line* version.
