@@ -1,6 +1,8 @@
 # Wp81Wiimote2
 
-Other demonstration of the usage of a Wiimote with Windows Phone 8.1  
+An other demonstration of the usage of a Wiimote with Windows Phone 8.1  
+This time, the communication is done at the HCI level.  
+
 See also my previous projects on the same topic:  
 - [Wp81Wiimote](https://github.com/fredericGette/Wp81Wiimote)
 - [Wp81WiimoteDriver](https://github.com/fredericGette/Wp81WiimoteDriver)
@@ -83,3 +85,7 @@ powertool -reboot
 > You can inspect the logs of the drivers using [wp81debug](https://github.com/fredericGette/wp81debug)  
 > `wp81debug.exe dbgprint | findstr /C:"Control!" /C:"HCI!"`
 > And parse them using [hciexplorer](https://github.com/fredericGette/hciexplorer) in *command line* version.
+
+## References
+
+Specifications to communicate with a Wiimote are available at [Wiimote - WiiBrew](https://wiibrew.org/wiki/Wiimote)
