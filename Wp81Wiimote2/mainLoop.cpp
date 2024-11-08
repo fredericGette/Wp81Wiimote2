@@ -1,7 +1,9 @@
 #include "stdafx.h"
 
 #define NUMBER_OF_THREADS 2
-#define STATE_INQUIRY 1
+
+#define STATE_BT_RESET 0
+#define STATE_BT_INQUIRY 1
 #define STATE_BT_CONNECTION 2
 #define STATE_HID_CONTROL_CONNECTION 3
 #define STATE_HID_CONTROL_CONFIGURATION 4
@@ -9,7 +11,13 @@
 #define STATE_HID_INTERRUPT_CONNECTION 6
 #define STATE_HID_INTERRUPT_CONFIGURATION 7
 #define STATE_HID_INTERRUPT_CONFIGURATION_RESPONSE 8
-#define STATE_SET_LEDS 9
+#define STATE_WIIMOTE_SET_LEDS 9
+#define STATE_WIIMOTE_SET_DATA_REPORTING_MODE 10
+#define STATE_WIIMOTE_READ_INPUTS 11
+#define STATE_HID_CONTROL_DISCONNECTION 12
+#define STATE_HID_INTERRUPT_DISCONNECTION 13
+#define STATE_BT_DISCONNECTION 14
+#define STATE_FINISHED 15
 
 typedef struct _RemoteDevice {
 	BYTE btAddr[6];
@@ -26,9 +34,12 @@ static HANDLE hciControlDeviceCmd = NULL;
 static HANDLE hciControlDeviceAcl = NULL;
 static HANDLE hThreadArray[NUMBER_OF_THREADS];
 static BOOL mainLoop_continue;
+static BOOL readLoop_continue;
 static RemoteDevice* remoteDevices[10] = { NULL };
 static HANDLE hEventCmdFinished;
 static DWORD currentState;
+
+static BYTE buttons[2] = { 0 };
 
 // Debug helper
 void printBuffer2HexString(BYTE* buffer, size_t bufSize)
@@ -76,6 +87,11 @@ void storeConnectionHandle(BYTE* connectionComplete)
 	}
 }
 
+void removeConnectionHandle(int deviceNumber)
+{
+	memset(remoteDevices[deviceNumber]->connectionHandle, 0, 2);
+}
+
 DWORD WINAPI readEvents(void* data)
 {
 	DWORD returned;
@@ -85,6 +101,7 @@ DWORD WINAPI readEvents(void* data)
 	BYTE headerCommandComplete[7] = { 0x06, 0x00, 0x00, 0x00, 0x04, 0x0E, 0x04 };
 	BYTE headerInquiryResult[8] = { 0x11, 0x00, 0x00, 0x00, 0x04, 0x02, 0x0F, 0x01 };
 	BYTE headerConnectionComplete[8] = { 0x0D, 0x00, 0x00, 0x00, 0x04, 0x03, 0x0B, 0x00 };
+	BYTE headerDisconnectionComplete[7] = { 0x06, 0x00, 0x00, 0x00, 0x04, 0x05, 0x04 };
 
 	hciControlDeviceEvt = CreateFileA("\\\\.\\wp81controldevice", GENERIC_WRITE, FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
 	if (hciControlDeviceEvt == INVALID_HANDLE_VALUE)
@@ -102,7 +119,7 @@ DWORD WINAPI readEvents(void* data)
 	readEvent_outputBuffer = (BYTE*)malloc(262);
 
 	printf("Start listening to Events...\n");
-	while (mainLoop_continue)
+	while (readLoop_continue)
 	{
 		success = DeviceIoControl(hciControlDeviceEvt, IOCTL_CONTROL_READ_HCI, readEvent_inputBuffer, 4, readEvent_outputBuffer, 262, &returned, NULL);
 		if (success)
@@ -122,12 +139,18 @@ DWORD WINAPI readEvents(void* data)
 					currentState = STATE_BT_CONNECTION;
 				}
 			}
-			if (returned == 18 && memcmp(readEvent_outputBuffer, headerConnectionComplete, 8) == 0)
+			else if (returned == 18 && memcmp(readEvent_outputBuffer, headerConnectionComplete, 8) == 0)
 			{
-				storeConnectionHandle(readEvent_outputBuffer);
 				printf("Received: BT Connection OK\n");
+				storeConnectionHandle(readEvent_outputBuffer);
 				currentState = STATE_HID_CONTROL_CONNECTION;
 				SetEvent(hEventCmdFinished);
+			}
+			else if (returned == 11 && memcmp(readEvent_outputBuffer, headerDisconnectionComplete, 7) == 0 && memcmp(readEvent_outputBuffer + 8, remoteDevices[0]->connectionHandle, 2) == 0)
+			{
+				printf("Received: Disconnection complete\n");
+				removeConnectionHandle(0);
+				currentState = STATE_FINISHED;
 			}
 		}
 		else
@@ -169,7 +192,7 @@ DWORD WINAPI readAclData(void* data)
 	readAcl_outputBuffer = (BYTE*)malloc(1030);
 
 	printf("Start listening to ACL Data...\n");
-	while (mainLoop_continue)
+	while (readLoop_continue)
 	{
 		success = DeviceIoControl(hciControlDeviceAcl, IOCTL_CONTROL_READ_HCI, readAcl_inputBuffer, 4, readAcl_outputBuffer, 1030, &returned, NULL);
 		if (success)
@@ -207,6 +230,29 @@ DWORD WINAPI readAclData(void* data)
 				currentState = STATE_HID_INTERRUPT_CONFIGURATION_RESPONSE;
 				SetEvent(hEventCmdFinished);
 			}
+			else if (returned == 21 && readAcl_outputBuffer[5] == remoteDevices[0]->connectionHandle[0] && readAcl_outputBuffer[13] == 0x07)
+			{
+				// DISCONNECTION_RESPONSE (0x07)
+				printf("Received: L2CAP Disconnection OK\n");
+				switch (currentState)
+				{
+				case STATE_HID_CONTROL_DISCONNECTION:
+					currentState = STATE_HID_INTERRUPT_DISCONNECTION;
+					break;
+				case STATE_HID_INTERRUPT_DISCONNECTION:
+					currentState = STATE_BT_DISCONNECTION;
+					break;
+				}
+				SetEvent(hEventCmdFinished);
+			}
+			else if (returned == 17 && readAcl_outputBuffer[5] == remoteDevices[0]->connectionHandle[0] && readAcl_outputBuffer[13] == 0xA1 && memcmp(readAcl_outputBuffer + 11, cidLocalHidInterrupt, 2) == 0)
+			{
+				// INPUT REPORT (0xA1)
+				if ((buttons[1] & 0x04) > (readAcl_outputBuffer[16] & 0x04)) printf("[Button B     released]");
+				if ((buttons[1] & 0x04) < (readAcl_outputBuffer[16] & 0x04)) printf("[Button B      pressed]");
+				if (memcmp(buttons, readAcl_outputBuffer + 15, 2) != 0) printf("\n");
+				memcpy(buttons, readAcl_outputBuffer + 15, 2);
+			}
 		}
 		else
 		{
@@ -234,8 +280,10 @@ int mainLoop_run()
 	BYTE* cmd_outputBuffer;
 	BOOL success;
 	int exit_status = EXIT_SUCCESS;
+	int maxRetries;
 
 	mainLoop_continue = TRUE;
+	readLoop_continue = TRUE;
 
 	hciControlDeviceCmd = CreateFileA("\\\\.\\wp81controldevice", GENERIC_WRITE, FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
 	if (hciControlDeviceCmd == INVALID_HANDLE_VALUE)
@@ -274,7 +322,7 @@ int mainLoop_run()
 	cmd_inputBuffer[2] = 0x00;
 	cmd_inputBuffer[3] = 0x00;
 	cmd_inputBuffer[4] = 0x01; // Command
-	cmd_inputBuffer[5] = 0x03;
+	cmd_inputBuffer[5] = 0x03; // RESET
 	cmd_inputBuffer[6] = 0x0C;
 	cmd_inputBuffer[7] = 0x00;
 	cmd_outputBuffer = (BYTE*)malloc(4);
@@ -295,8 +343,10 @@ int mainLoop_run()
 	// Wait for the end of the Reset command
 	WaitForSingleObject(hEventCmdFinished, 1000);
 
+	printf("Press buttons 1 and 2 of the Wiimote to put it in discoverable mode : the LEDs are blinking\n");
+
 	// State: detect a nearby remote bluetooth device. 
-	currentState = STATE_INQUIRY;
+	currentState = STATE_BT_INQUIRY;
 	// Inquiry command
 	cmd_inputBuffer = (BYTE*)malloc(13);
 	cmd_inputBuffer[0] = 0x08;
@@ -304,16 +354,16 @@ int mainLoop_run()
 	cmd_inputBuffer[2] = 0x00;
 	cmd_inputBuffer[3] = 0x00;
 	cmd_inputBuffer[4] = 0x01; // Command
-	cmd_inputBuffer[5] = 0x01;
+	cmd_inputBuffer[5] = 0x01; // INQUIRY
 	cmd_inputBuffer[6] = 0x04;
 	cmd_inputBuffer[7] = 0x05;
-	cmd_inputBuffer[8] = 0x00;  // Limited Inquiry Access Code (LIAC) 0x9E8B00
+	cmd_inputBuffer[8] = 0x00;  // Limited Inquiry Access Code (LIAC) 0x9E8B00 - Required to detect 3rd party Wiimote
 	cmd_inputBuffer[9] = 0x8B;  // -
 	cmd_inputBuffer[10] = 0x9E; // -
 	cmd_inputBuffer[11] = 0x02; // Length x 1.28s
 	cmd_inputBuffer[12] = 0x00; // Inquiry completed by 1 response
 	cmd_outputBuffer = (BYTE*)malloc(4);
-	while (mainLoop_continue && currentState == STATE_INQUIRY)
+	while (mainLoop_continue && currentState == STATE_BT_INQUIRY)
 	{
 		success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 13, cmd_outputBuffer, 4, &returned, NULL);
 		if (!success)
@@ -339,7 +389,7 @@ int mainLoop_run()
 	cmd_inputBuffer[2] = 0x00;
 	cmd_inputBuffer[3] = 0x00;
 	cmd_inputBuffer[4] = 0x01; // Command
-	cmd_inputBuffer[5] = 0x05;
+	cmd_inputBuffer[5] = 0x05; // CONNECT
 	cmd_inputBuffer[6] = 0x04;
 	cmd_inputBuffer[7] = 0x0D;
 	memcpy(cmd_inputBuffer + 8, remoteDevices[0]->btAddr, 6);
@@ -349,7 +399,7 @@ int mainLoop_run()
 	cmd_inputBuffer[17] = 0x00; // Reserved
 	memcpy(cmd_inputBuffer + 18, remoteDevices[0]->clockOffset, 2);
 	cmd_inputBuffer[19] |= 0x80; // set bit 15: clockOffset is valid
- 	cmd_inputBuffer[20] = 0x01; // allowRoleSwitch:ALLOWED 
+	cmd_inputBuffer[20] = 0x01; // allowRoleSwitch:ALLOWED 
 	cmd_outputBuffer = (BYTE*)malloc(4);
 	while (mainLoop_continue && currentState == STATE_BT_CONNECTION)
 	{
@@ -628,7 +678,7 @@ int mainLoop_run()
 
 	Sleep(1000);
 
-	// State: Set the LEDs of the remote device. 
+	// State: Set the LEDs of the Wiimote. 
 	cmd_inputBuffer = (BYTE*)malloc(16);
 	cmd_inputBuffer[0] = 0x0B; // Length of the IOCTL message
 	cmd_inputBuffer[1] = 0x00;
@@ -638,7 +688,7 @@ int mainLoop_run()
 	cmd_inputBuffer[5] = remoteDevices[0]->connectionHandle[0];
 	cmd_inputBuffer[6] = remoteDevices[0]->connectionHandle[1];
 	cmd_inputBuffer[7] = 0x07; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00;
+	cmd_inputBuffer[8] = 0x00; // -
 	cmd_inputBuffer[9] = 0x03;  // Length of the L2CAP message
 	cmd_inputBuffer[10] = 0x00; // -
 	cmd_inputBuffer[11] = remoteDevices[0]->hidInterruptChannel[0];
@@ -658,6 +708,146 @@ int mainLoop_run()
 		printf("Set LEDs\n");
 		ResetEvent(hEventCmdFinished);
 	}
+
+	// State: Set report mode of the Wiimote
+	cmd_inputBuffer = (BYTE*)malloc(17);
+	cmd_inputBuffer[0] = 0x0C; // Length of the IOCTL message
+	cmd_inputBuffer[1] = 0x00;
+	cmd_inputBuffer[2] = 0x00;
+	cmd_inputBuffer[3] = 0x00;
+	cmd_inputBuffer[4] = 0x02; // ACL data
+	cmd_inputBuffer[5] = remoteDevices[0]->connectionHandle[0];
+	cmd_inputBuffer[6] = remoteDevices[0]->connectionHandle[1];
+	cmd_inputBuffer[7] = 0x08; // Length of the ACL message
+	cmd_inputBuffer[8] = 0x00; // -
+	cmd_inputBuffer[9] = 0x04;  // Length of the L2CAP message
+	cmd_inputBuffer[10] = 0x00; // -
+	cmd_inputBuffer[11] = remoteDevices[0]->hidInterruptChannel[0];
+	cmd_inputBuffer[12] = remoteDevices[0]->hidInterruptChannel[1];
+	cmd_inputBuffer[13] = 0xA2;	// Output report
+	cmd_inputBuffer[14] = 0x12;	// Set Data Reporting Mode:
+	cmd_inputBuffer[15] = 0x00;	// Only On Change
+	cmd_inputBuffer[16] = 0x30; // Only Core Buttons
+	cmd_outputBuffer = (BYTE*)malloc(4);
+	success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 17, cmd_outputBuffer, 4, &returned, NULL);
+	if (!success)
+	{
+		printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+		exit_status = EXIT_FAILURE;
+	}
+	else
+	{
+		printf("Set Data Reporting Mode\n");
+		ResetEvent(hEventCmdFinished);
+	}
+
+	// State: Read inputs
+	while (mainLoop_continue)
+	{
+		Sleep(100);
+	}
+	currentState = STATE_HID_CONTROL_DISCONNECTION;
+
+	// State: Disconnect "HID Control" channel
+	cmd_inputBuffer = (BYTE*)malloc(21);
+	cmd_inputBuffer[0] = 0x10; // Length of the IOCTL message
+	cmd_inputBuffer[1] = 0x00;
+	cmd_inputBuffer[2] = 0x00;
+	cmd_inputBuffer[3] = 0x00;
+	cmd_inputBuffer[4] = 0x02; // ACL data
+	cmd_inputBuffer[5] = remoteDevices[0]->connectionHandle[0];
+	cmd_inputBuffer[6] = remoteDevices[0]->connectionHandle[1];
+	cmd_inputBuffer[7] = 0x0C; // Length of the ACL message
+	cmd_inputBuffer[8] = 0x00;
+	cmd_inputBuffer[9] = 0x08;  // Length of the L2CAP message
+	cmd_inputBuffer[10] = 0x00; // -
+	cmd_inputBuffer[11] = 0x01; // Signaling channel
+	cmd_inputBuffer[12] = 0x00; // -
+	cmd_inputBuffer[13] = 0x06; // DISCONNECTION_REQUEST
+	cmd_inputBuffer[14] = 0x04; // message id
+	cmd_inputBuffer[15] = 0x04; // Length of the command parameters (CID+Flags)
+	cmd_inputBuffer[16] = 0x00; // -
+	cmd_inputBuffer[17] = remoteDevices[0]->hidControlChannel[0];
+	cmd_inputBuffer[18] = remoteDevices[0]->hidControlChannel[1];
+	cmd_inputBuffer[19] = 0x40; // local ID of the "HID Control" channel
+	cmd_inputBuffer[20] = 0x00; // -
+	cmd_outputBuffer = (BYTE*)malloc(4);
+	maxRetries = 2;
+	while (currentState == STATE_HID_CONTROL_DISCONNECTION && maxRetries-- > 0)
+	{
+		success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 21, cmd_outputBuffer, 4, &returned, NULL);
+		if (!success)
+		{
+			printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+			exit_status = EXIT_FAILURE;
+		}
+		else
+		{
+			printf("Request L2CAP HID_control disconnection\n");
+			ResetEvent(hEventCmdFinished);
+		}
+
+		// Wait for the end of the Disconnection request command
+		WaitForSingleObject(hEventCmdFinished, 2000);
+	}
+
+	// State: Disconnect "HID Interrupt" channel
+	cmd_inputBuffer = (BYTE*)malloc(21);
+	cmd_inputBuffer[0] = 0x10; // Length of the IOCTL message
+	cmd_inputBuffer[1] = 0x00;
+	cmd_inputBuffer[2] = 0x00;
+	cmd_inputBuffer[3] = 0x00;
+	cmd_inputBuffer[4] = 0x02; // ACL data
+	cmd_inputBuffer[5] = remoteDevices[0]->connectionHandle[0];
+	cmd_inputBuffer[6] = remoteDevices[0]->connectionHandle[1];
+	cmd_inputBuffer[7] = 0x0C; // Length of the ACL message
+	cmd_inputBuffer[8] = 0x00;
+	cmd_inputBuffer[9] = 0x08;  // Length of the L2CAP message
+	cmd_inputBuffer[10] = 0x00; // -
+	cmd_inputBuffer[11] = 0x01; // Signaling channel
+	cmd_inputBuffer[12] = 0x00; // -
+	cmd_inputBuffer[13] = 0x06; // DISCONNECTION_REQUEST
+	cmd_inputBuffer[14] = 0x03; // message id
+	cmd_inputBuffer[15] = 0x04; // Length of the command parameters (CID+Flags)
+	cmd_inputBuffer[16] = 0x00; // -
+	cmd_inputBuffer[17] = remoteDevices[0]->hidInterruptChannel[0];
+	cmd_inputBuffer[18] = remoteDevices[0]->hidInterruptChannel[1];
+	cmd_inputBuffer[19] = 0x41; // local ID of the "HID Interrupt" channel
+	cmd_inputBuffer[20] = 0x00; // -
+	cmd_outputBuffer = (BYTE*)malloc(4);
+	maxRetries = 2;
+	while (currentState == STATE_HID_INTERRUPT_DISCONNECTION && maxRetries-- > 0)
+	{
+		success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 21, cmd_outputBuffer, 4, &returned, NULL);
+		if (!success)
+		{
+			printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+			exit_status = EXIT_FAILURE;
+		}
+		else
+		{
+			printf("Request L2CAP HID_interrupt disconnection\n");
+			ResetEvent(hEventCmdFinished);
+		}
+
+		// Wait for the end of the Disconnection request command
+		WaitForSingleObject(hEventCmdFinished, 2000);
+	}
+
+	if (currentState != STATE_FINISHED)
+	{
+		// We are still waiting for the "disconnect event"
+		// This means the Wiimote is not switched off yet
+		printf("Press the button \"power\" of the Wiimote until the LED is switched off.\n");
+	}
+	// Wait for an optional "disconnection event"
+	maxRetries = 2;
+	while (currentState == STATE_BT_DISCONNECTION && maxRetries-- > 0)
+	{
+		Sleep(1000);
+	}
+	readLoop_continue = FALSE;
+	printf("Stop then start the Bluetooth of the phone.\n");
 
 	// Wait for the end of the "read events" and "read ACL data" threads.
 	WaitForMultipleObjectsEx(NUMBER_OF_THREADS, hThreadArray, TRUE, INFINITE, TRUE);
