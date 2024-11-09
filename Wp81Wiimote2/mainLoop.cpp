@@ -27,6 +27,7 @@ typedef struct _RemoteDevice {
 	BYTE hidControlChannel[2];
 	BYTE hidInterruptChannel[2];
 	BYTE l2capMessageId;
+	BYTE buttons[2];
 } RemoteDevice;
 
 static HANDLE hciControlDeviceEvt = NULL;
@@ -38,8 +39,6 @@ static BOOL readLoop_continue;
 static RemoteDevice* remoteDevices[10] = { NULL };
 static HANDLE hEventCmdFinished;
 static DWORD currentState;
-
-static BYTE buttons[2] = { 0 };
 
 // Debug helper
 void printBuffer2HexString(BYTE* buffer, size_t bufSize)
@@ -175,6 +174,7 @@ DWORD WINAPI readAclData(void* data)
 	BYTE resultSuccess[4] = { 0x00, 0x00, 0x00, 0x00 };
 	BYTE cidLocalHidControl[2] = { 0x40, 0x00 };
 	BYTE cidLocalHidInterrupt[2] = { 0x41, 0x00 };
+	DWORD X, Y, Z;
 
 	hciControlDeviceAcl = CreateFileA("\\\\.\\wp81controldevice", GENERIC_WRITE, FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
 	if (hciControlDeviceAcl == INVALID_HANDLE_VALUE)
@@ -245,13 +245,45 @@ DWORD WINAPI readAclData(void* data)
 				}
 				SetEvent(hEventCmdFinished);
 			}
-			else if (returned == 17 && readAcl_outputBuffer[5] == remoteDevices[0]->connectionHandle[0] && readAcl_outputBuffer[13] == 0xA1 && memcmp(readAcl_outputBuffer + 11, cidLocalHidInterrupt, 2) == 0)
+			else if (returned == 32 && readAcl_outputBuffer[5] == remoteDevices[0]->connectionHandle[0] && readAcl_outputBuffer[13] == 0xA1 && memcmp(readAcl_outputBuffer + 11, cidLocalHidInterrupt, 2) == 0)
 			{
 				// INPUT REPORT (0xA1)
-				if ((buttons[1] & 0x04) > (readAcl_outputBuffer[16] & 0x04)) printf("[Button B     released]");
-				if ((buttons[1] & 0x04) < (readAcl_outputBuffer[16] & 0x04)) printf("[Button B      pressed]");
-				if (memcmp(buttons, readAcl_outputBuffer + 15, 2) != 0) printf("\n");
-				memcpy(buttons, readAcl_outputBuffer + 15, 2);
+				if (remoteDevices[0]->buttons[0] != (readAcl_outputBuffer[15] & 0x9F)
+					|| remoteDevices[0]->buttons[1] != (readAcl_outputBuffer[16] & 0x9F))
+				{
+					if ((readAcl_outputBuffer[15] & 0x01) > 0) printf("<");
+					else printf(" ");
+					if ((readAcl_outputBuffer[15] & 0x02) > 0) printf(">");
+					else printf(" ");
+					if ((readAcl_outputBuffer[15] & 0x04) > 0) printf("v");
+					else printf(" ");
+					if ((readAcl_outputBuffer[15] & 0x08) > 0) printf("^");
+					else printf(" ");
+					if ((readAcl_outputBuffer[15] & 0x10) > 0) printf("+");
+					else printf(" ");
+					if ((readAcl_outputBuffer[16] & 0x01) > 0) printf("2");
+					else printf(" ");
+					if ((readAcl_outputBuffer[16] & 0x02) > 0) printf("1");
+					else printf(" ");
+					if ((readAcl_outputBuffer[16] & 0x04) > 0) printf("B");
+					else printf(" ");
+					if ((readAcl_outputBuffer[16] & 0x08) > 0) printf("A");
+					else printf(" ");
+					if ((readAcl_outputBuffer[16] & 0x10) > 0) printf("-");
+					else printf(" ");
+					if ((readAcl_outputBuffer[16] & 0x80) > 0) printf("H");
+					else printf(" ");
+
+					X = (readAcl_outputBuffer[17] << 2) + ((readAcl_outputBuffer[15] & 0x60) >> 5) - 512;
+					Y = (readAcl_outputBuffer[18] << 2) + ((readAcl_outputBuffer[16] & 0x20) >> 4) - 512;
+					Z = (readAcl_outputBuffer[19] << 2) + ((readAcl_outputBuffer[16] & 0x40) >> 5) - 512;
+					printf("%+03d %+03d %+03d", X, Y, Z);
+
+					printf("\n");
+				}
+
+				remoteDevices[0]->buttons[0] = (readAcl_outputBuffer[15] & 0x9F);
+				remoteDevices[0]->buttons[1] = (readAcl_outputBuffer[16] & 0x9F);
 			}
 		}
 		else
@@ -726,8 +758,8 @@ int mainLoop_run()
 	cmd_inputBuffer[12] = remoteDevices[0]->hidInterruptChannel[1];
 	cmd_inputBuffer[13] = 0xA2;	// Output report
 	cmd_inputBuffer[14] = 0x12;	// Set Data Reporting Mode:
-	cmd_inputBuffer[15] = 0x00;	// Only On Change
-	cmd_inputBuffer[16] = 0x30; // Only Core Buttons
+	cmd_inputBuffer[15] = 0x04;	// Continuous reporting
+	cmd_inputBuffer[16] = 0x33; // Core Buttons and Accelerometer with 12 IR bytes
 	cmd_outputBuffer = (BYTE*)malloc(4);
 	success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 17, cmd_outputBuffer, 4, &returned, NULL);
 	if (!success)
