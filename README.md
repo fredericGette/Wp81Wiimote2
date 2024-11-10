@@ -25,7 +25,7 @@ Currently, when you start the executable it does the following steps:
 - Open and configure a *HID control* channel with the Bluetooth device.
 - Open and configure a *HID interrupt* channel with the Bluetooth device.
 - Set the first LED of the Wiimote
-- Read the inputs of the Wiimote
+- Read the inputs of the Wiimote (buttons and accelerometer)
 
 To stop the executable, press Ctrl+C, then disable Bluetooth on the Windows Phone.  
 
