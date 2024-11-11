@@ -20,15 +20,39 @@ TODO
 Currently, when you start the executable it does the following steps:  
 - Stop the communication between the Windows Bluetooth stack and the Qualcomm Bluetooth stack.  
 - Reset the Bluetooth controller.  
-- Start *Inquiry* in a loop to detect a Bluetooth device (you have to press simultaneously the buttons 1 and 2 of the Wiimote). It exits the loop as soon as a device is detected.  
-- Establish a Bluetooth connection with the Bluetooth device.
-- Open and configure a *HID control* channel with the Bluetooth device.
-- Open and configure a *HID interrupt* channel with the Bluetooth device.
-- Set the first LED of the Wiimote
-- Read the inputs of the Wiimote (buttons and accelerometer)
+- Start *Inquiry* in a loop to detect 4 Bluetooth devicse (you have to press simultaneously the buttons 1 and 2 of the Wiimote). It exits the loop as soon as 4 devices are detected.  
+- Establish a Bluetooth connection with the Bluetooth devices.
+- Open and configure a *HID control* channel with the Bluetooth devices.
+- Open and configure a *HID interrupt* channel with the Bluetooth devices.
+- Set the LED of the Wiimotes (the LED# correspond to the order of the detection of the Wiimote).
+- Read the inputs of the Wiimotes (buttons and accelerometer)
 
 To stop the executable, press Ctrl+C, then disable Bluetooth on the Windows Phone.  
 
+[Example](Capture01.PNG)
+The program displays the inputs received from the Wiimotes.  
+A new line is displayed each time a button is pressed or released.  
+The format of a line is the following:  
+```
+MMMM msg/s 1:<>v^+21BA-H ±XXX ±YYY ±ZZZ 2:<>v^+21BA-H ±XXX ±YYY ±ZZZ 3:<>v^+21BA-H ±XXX ±YYY ±ZZZ 4:<>v^+21BA-H ±XXX ±YYY ±ZZZ 
+```
+Where:
+- `MMMM msg/s` is the number of ACL messages received by second.
+- `<` is D-Pad left.
+- `>` is D-Pad right.
+- `v` is D-Pad down.
+- `^` is D-Pad up.
+- `+` is Plus button.
+- `2` is Two button.
+- `1` is One button.
+- `B` is B button.
+- `A` is A button.
+- `-` is Minus button.
+- `H` is Home button.
+- XXX is the value of the acceleration in the X axis.
+- YYY is the value of the acceleration in the Y axis.
+- ZZZ is the value of the acceleration in the Z axis.
+  
 ## Deployment
 
 - [Install a telnet server on the phone](https://github.com/fredericGette/wp81documentation/tree/main/telnetOverUsb#readme), in order to run the application.  
