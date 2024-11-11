@@ -26,6 +26,7 @@ extern "C" {
 	WINBASEAPI VOID WINAPI Sleep(DWORD dwMilliseconds);
 	WINBASEAPI HANDLE WINAPI CreateEventW(LPSECURITY_ATTRIBUTES lpEventAttributes, BOOL bManualReset, BOOL bInitialState, LPCWSTR lpName);
 	WINBASEAPI DWORD WINAPI WaitForSingleObject(HANDLE hHandle, DWORD dwMilliseconds);
+	WINBASEAPI DWORD WINAPI GetTickCount(VOID);
 }
 
 
