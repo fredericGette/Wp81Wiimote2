@@ -49,9 +49,9 @@ Where:
 - `A` is A button.
 - `-` is Minus button.
 - `H` is Home button.
-- XXX is the value of the acceleration in the X axis.
-- YYY is the value of the acceleration in the Y axis.
-- ZZZ is the value of the acceleration in the Z axis.
+- `±XXX` is the value of the acceleration in the X axis.
+- `±YYY` is the value of the acceleration in the Y axis.
+- `±ZZZ` is the value of the acceleration in the Z axis.
   
 ## Deployment
 
