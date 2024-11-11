@@ -29,7 +29,7 @@ Currently, when you start the executable it does the following steps:
 
 To stop the executable, press Ctrl+C, then disable Bluetooth on the Windows Phone.  
 
-[Example](Capture01.PNG)
+![Example](Capture01.PNG)
 The program displays the inputs received from the Wiimotes.  
 A new line is displayed each time a button is pressed or released.  
 The format of a line is the following:  
