@@ -20,7 +20,7 @@ TODO
 Currently, when you start the executable it does the following steps:  
 - Stop the communication between the Windows Bluetooth stack and the Qualcomm Bluetooth stack.  
 - Reset the Bluetooth controller.  
-- Start *Inquiry* in a loop to detect 4 Bluetooth devicse (you have to press simultaneously the buttons 1 and 2 of the Wiimote). It exits the loop as soon as 4 devices are detected.  
+- Start *Inquiry* in a loop to detect 4 Bluetooth devices (you have to press simultaneously the buttons 1 and 2 of the Wiimote). It exits the loop as soon as 4 devices are detected.  
 - Establish a Bluetooth connection with the Bluetooth devices.
 - Open and configure a *HID control* channel with the Bluetooth devices.
 - Open and configure a *HID interrupt* channel with the Bluetooth devices.
