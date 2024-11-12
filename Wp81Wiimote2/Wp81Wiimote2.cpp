@@ -36,6 +36,7 @@ static const struct option main_options[] = {
 int main(int argc, char* argv[])
 {
 	int exit_status = EXIT_SUCCESS;
+	verbose = FALSE;
 
 	SetConsoleCtrlHandler(consoleHandler, TRUE);
 

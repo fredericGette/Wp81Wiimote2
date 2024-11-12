@@ -159,12 +159,12 @@ DWORD WINAPI readEvents(void* data)
 		{
 			if (returned == 11 && memcmp(readEvent_outputBuffer, headerCommandComplete, 7) == 0)
 			{
-//				printf("Received: Command complete\n");
+				if (verbose) printf("Received: Command complete\n");
 				SetEvent(hEventCmdFinished);
 			}
 			else if (returned == 22 && memcmp(readEvent_outputBuffer, headerInquiryResult, 8) == 0)
 			{
-//				printf("Detected %02X:%02X:%02X:%02X:%02X:%02X\n", readEvent_outputBuffer[13], readEvent_outputBuffer[12], readEvent_outputBuffer[11], readEvent_outputBuffer[10], readEvent_outputBuffer[9], readEvent_outputBuffer[8], readEvent_outputBuffer[7]);
+				if (verbose) printf("Detected %02X:%02X:%02X:%02X:%02X:%02X\n", readEvent_outputBuffer[13], readEvent_outputBuffer[12], readEvent_outputBuffer[11], readEvent_outputBuffer[10], readEvent_outputBuffer[9], readEvent_outputBuffer[8], readEvent_outputBuffer[7]);
 				if (!isWiimoteAlreadyKnown(readEvent_outputBuffer))
 				{
 					storeRemoteDevice(readEvent_outputBuffer);
@@ -173,13 +173,13 @@ DWORD WINAPI readEvents(void* data)
 			}
 			else if (returned == 18 && memcmp(readEvent_outputBuffer, headerConnectionComplete, 8) == 0)
 			{
-//				printf("Received: BT Connection OK\n");
+				if (verbose) printf("Received: BT Connection OK\n");
 				storeConnectionHandle(readEvent_outputBuffer);
 				SetEvent(hEventCmdFinished);
 			}
 			else if (returned == 11 && memcmp(readEvent_outputBuffer, headerDisconnectionComplete, 7) == 0)
 			{
-//				printf("Received: Disconnection complete\n");
+				if (verbose) printf("Received: Disconnection complete\n");
 				removeConnectionHandle(readEvent_outputBuffer);
 			}
 		}
@@ -353,7 +353,7 @@ DWORD WINAPI readAclData(void* data)
 			if (returned == 25 && readAcl_outputBuffer[13] == 0x03 && memcmp(readAcl_outputBuffer + 21, resultSuccess, 4) == 0)
 			{
 				// CONNECTION_RESPONSE (0x03)
-//				printf("Received: L2CAP Connection OK\n");
+				if (verbose) printf("Received: L2CAP Connection OK\n");
 				storeL2CapChannel(readAcl_outputBuffer);
 				SetEvent(hEventCmdFinished);
 			}
@@ -361,7 +361,7 @@ DWORD WINAPI readAclData(void* data)
 			{
 				// We ignore the CONFIGURATION_RESPONSE to our CONFIGURATION_REQUEST, 
 				// but we must respond to the CONFIGURATION_REQUEST (0x04) of the remote device.
-//				printf("Received: L2CAP Configuration request HID_control\n");
+				if (verbose) printf("Received: L2CAP Configuration request HID_control\n");
 				// We must respond with the same message id
 				storeL2CapMessageId(readAcl_outputBuffer);
 				SetEvent(hEventCmdFinished);
@@ -370,7 +370,7 @@ DWORD WINAPI readAclData(void* data)
 			{
 				// We ignore the CONFIGURATION_RESPONSE to our CONFIGURATION_REQUEST, 
 				// but we must respond to the CONFIGURATION_REQUEST (0x04) of the remote device.
-//				printf("Received: L2CAP Configuration request HID_interrupt\n");
+				if (verbose) printf("Received: L2CAP Configuration request HID_interrupt\n");
 				// We must respond with the same message id
 				storeL2CapMessageId(readAcl_outputBuffer);
 				SetEvent(hEventCmdFinished);
@@ -378,7 +378,7 @@ DWORD WINAPI readAclData(void* data)
 			else if (returned == 21 && readAcl_outputBuffer[13] == 0x07)
 			{
 				// DISCONNECTION_RESPONSE (0x07)
-//				printf("Received: L2CAP Disconnection OK\n");
+				if (verbose) printf("Received: L2CAP Disconnection OK\n");
 				removeL2CapChannel(readAcl_outputBuffer);
 				SetEvent(hEventCmdFinished);
 			}
@@ -406,6 +406,372 @@ void mainLoop_exit()
 {
 	printf("Terminating...\n");
 	mainLoop_continue = FALSE;
+}
+
+int connectWiimotes()
+{
+	DWORD returned;
+	BYTE* cmd_inputBuffer;
+	BYTE* cmd_outputBuffer;
+	BOOL success;
+	int exit_status = EXIT_SUCCESS;
+
+	// Execute the connection and configuration steps for all the newly discovered Wiimotes.
+	for (int i = 0; i < NUMBER_OF_WIIMOTES; i++)
+	{
+		if (wiimotes[i] != NULL && wiimotes[i]->state == STATE_BT_CONNECTION)
+		{
+
+			// State: connect to the remote device. 
+			// Connection command
+			cmd_inputBuffer = (BYTE*)malloc(21);
+			cmd_inputBuffer[0] = 0x10; // Length of the IOCTL message
+			cmd_inputBuffer[1] = 0x00;
+			cmd_inputBuffer[2] = 0x00;
+			cmd_inputBuffer[3] = 0x00;
+			cmd_inputBuffer[4] = 0x01; // Command
+			cmd_inputBuffer[5] = 0x05; // CONNECT
+			cmd_inputBuffer[6] = 0x04;
+			cmd_inputBuffer[7] = 0x0D;
+			memcpy(cmd_inputBuffer + 8, wiimotes[i]->btAddr, 6);
+			cmd_inputBuffer[14] = 0x18; // packetType =  DH3,DM5,DH1,DH5,DM3,DM1 
+			cmd_inputBuffer[15] = 0xCC; // -
+			cmd_inputBuffer[16] = wiimotes[i]->pageScanRepetitionMode;
+			cmd_inputBuffer[17] = 0x00; // Reserved
+			memcpy(cmd_inputBuffer + 18, wiimotes[i]->clockOffset, 2);
+			cmd_inputBuffer[19] |= 0x80; // set bit 15: clockOffset is valid
+			cmd_inputBuffer[20] = 0x01; // allowRoleSwitch:ALLOWED 
+			cmd_outputBuffer = (BYTE*)malloc(4);
+			while (mainLoop_continue && wiimotes[i]->state == STATE_BT_CONNECTION)
+			{
+				success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 21, cmd_outputBuffer, 4, &returned, NULL);
+				if (!success)
+				{
+					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+					exit_status = EXIT_FAILURE;
+				}
+				else
+				{
+					if (verbose) printf("Create BT connection\n");
+					ResetEvent(hEventCmdFinished);
+				}
+
+				// Wait for the end of the Connection command
+				WaitForSingleObject(hEventCmdFinished, 2000);
+			}
+
+			// State: Open a "HID Control" channel with the remote device. 
+			// Connection request command
+			cmd_inputBuffer = (BYTE*)malloc(21);
+			cmd_inputBuffer[0] = 0x10; // Length of the IOCTL message
+			cmd_inputBuffer[1] = 0x00;
+			cmd_inputBuffer[2] = 0x00;
+			cmd_inputBuffer[3] = 0x00;
+			cmd_inputBuffer[4] = 0x02; // ACL data
+			cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
+			cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
+			cmd_inputBuffer[7] = 0x0C; // Length of the ACL message
+			cmd_inputBuffer[8] = 0x00;
+			cmd_inputBuffer[9] = 0x08;  // Length of the L2CAP message (CMD+msgId+Length+PSM+CID)
+			cmd_inputBuffer[10] = 0x00; // -
+			cmd_inputBuffer[11] = 0x01; // Signaling channel
+			cmd_inputBuffer[12] = 0x00; // -
+			cmd_inputBuffer[13] = 0x02; // CONNECTION_REQUEST
+			cmd_inputBuffer[14] = 0x01; // message id
+			cmd_inputBuffer[15] = 0x04; // Length of the command parameters (PSM + CID)
+			cmd_inputBuffer[16] = 0x00; // -
+			cmd_inputBuffer[17] = 0x11; // PSM HID_control
+			cmd_inputBuffer[18] = 0x00; // -
+			cmd_inputBuffer[19] = 0x40; // local ID of the new channel requested
+			cmd_inputBuffer[20] = 0x00; // -
+			cmd_outputBuffer = (BYTE*)malloc(4);
+			while (mainLoop_continue && wiimotes[i]->state == STATE_HID_CONTROL_CONNECTION)
+			{
+				success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 21, cmd_outputBuffer, 4, &returned, NULL);
+				if (!success)
+				{
+					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+					exit_status = EXIT_FAILURE;
+				}
+				else
+				{
+					if (verbose) printf("Create L2CAP HID_control connection\n");
+					ResetEvent(hEventCmdFinished);
+				}
+
+				// Wait for the end of the Connection command
+				WaitForSingleObject(hEventCmdFinished, 2000);
+			}
+
+			// State: Configure the "HID Control" channel with the remote device. 
+			// Configuration request command (No options)
+			cmd_inputBuffer = (BYTE*)malloc(21);
+			cmd_inputBuffer[0] = 0x10; // Length of the IOCTL message
+			cmd_inputBuffer[1] = 0x00;
+			cmd_inputBuffer[2] = 0x00;
+			cmd_inputBuffer[3] = 0x00;
+			cmd_inputBuffer[4] = 0x02; // ACL data
+			cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
+			cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
+			cmd_inputBuffer[7] = 0x0C; // Length of the ACL message
+			cmd_inputBuffer[8] = 0x00;
+			cmd_inputBuffer[9] = 0x08;  // Length of the L2CAP message (CMD+msgId+Length+CID+Flags)
+			cmd_inputBuffer[10] = 0x00; // -
+			cmd_inputBuffer[11] = 0x01; // Signaling channel
+			cmd_inputBuffer[12] = 0x00; // -
+			cmd_inputBuffer[13] = 0x04; // CONFIGURATION_REQUEST
+			cmd_inputBuffer[14] = 0x02; // message id
+			cmd_inputBuffer[15] = 0x04; // Length of the command parameters (CID+Flags)
+			cmd_inputBuffer[16] = 0x00; // -
+			cmd_inputBuffer[17] = wiimotes[i]->hidControlChannel[0];
+			cmd_inputBuffer[18] = wiimotes[i]->hidControlChannel[1];
+			cmd_inputBuffer[19] = 0x00; // Flags
+			cmd_inputBuffer[20] = 0x00; // -
+			cmd_outputBuffer = (BYTE*)malloc(4);
+			while (mainLoop_continue && wiimotes[i]->state == STATE_HID_CONTROL_CONFIGURATION)
+			{
+				success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 21, cmd_outputBuffer, 4, &returned, NULL);
+				if (!success)
+				{
+					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+					exit_status = EXIT_FAILURE;
+				}
+				else
+				{
+					if (verbose) printf("Configure L2CAP HID_control connection\n");
+					ResetEvent(hEventCmdFinished);
+				}
+
+				// Wait for the end of the Configuration request command
+				WaitForSingleObject(hEventCmdFinished, 2000);
+			}
+
+			// State: Repond to finish the configuration of the "HID Control" channel with the remote device. 
+			// Configuration response command (success)
+			cmd_inputBuffer = (BYTE*)malloc(23);
+			cmd_inputBuffer[0] = 0x12; // Length of the IOCTL message
+			cmd_inputBuffer[1] = 0x00;
+			cmd_inputBuffer[2] = 0x00;
+			cmd_inputBuffer[3] = 0x00;
+			cmd_inputBuffer[4] = 0x02; // ACL data
+			cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
+			cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
+			cmd_inputBuffer[7] = 0x0E; // Length of the ACL message
+			cmd_inputBuffer[8] = 0x00;
+			cmd_inputBuffer[9] = 0x0A;  // Length of the L2CAP message
+			cmd_inputBuffer[10] = 0x00; // -
+			cmd_inputBuffer[11] = 0x01; // Signaling channel
+			cmd_inputBuffer[12] = 0x00; // -
+			cmd_inputBuffer[13] = 0x05; // CONFIGURATION_REPONSE
+			cmd_inputBuffer[14] = wiimotes[i]->l2capMessageId;
+			cmd_inputBuffer[15] = 0x06; // Length of the command parameters (CID+Flags)
+			cmd_inputBuffer[16] = 0x00; // -
+			cmd_inputBuffer[17] = wiimotes[i]->hidControlChannel[0];
+			cmd_inputBuffer[18] = wiimotes[i]->hidControlChannel[1];
+			cmd_inputBuffer[19] = 0x00; // Flags
+			cmd_inputBuffer[20] = 0x00; // -
+			cmd_inputBuffer[21] = 0x00; // Result = success
+			cmd_inputBuffer[22] = 0x00; // -
+			cmd_outputBuffer = (BYTE*)malloc(4);
+			success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 23, cmd_outputBuffer, 4, &returned, NULL);
+			if (!success)
+			{
+				printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+				exit_status = EXIT_FAILURE;
+			}
+			else
+			{
+				if (verbose) printf("Finish configuration L2CAP HID_control connection\n");
+				ResetEvent(hEventCmdFinished);
+				wiimotes[i]->state = STATE_HID_INTERRUPT_CONNECTION;
+			}
+
+			// State: Open a "HID Interrupt" channel with the remote device. 
+			// Connection request command
+			cmd_inputBuffer = (BYTE*)malloc(21);
+			cmd_inputBuffer[0] = 0x10; // Length of the IOCTL message
+			cmd_inputBuffer[1] = 0x00;
+			cmd_inputBuffer[2] = 0x00;
+			cmd_inputBuffer[3] = 0x00;
+			cmd_inputBuffer[4] = 0x02; // ACL data
+			cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
+			cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
+			cmd_inputBuffer[7] = 0x0C; // Length of the ACL message
+			cmd_inputBuffer[8] = 0x00;
+			cmd_inputBuffer[9] = 0x08;  // Length of the L2CAP message (CMD+msgId+Length+PSM+CID)
+			cmd_inputBuffer[10] = 0x00; // -
+			cmd_inputBuffer[11] = 0x01; // Signaling channel
+			cmd_inputBuffer[12] = 0x00; // -
+			cmd_inputBuffer[13] = 0x02; // CONNECTION_REQUEST
+			cmd_inputBuffer[14] = 0x03; // message id
+			cmd_inputBuffer[15] = 0x04; // Length of the command parameters (PSM + CID)
+			cmd_inputBuffer[16] = 0x00; // -
+			cmd_inputBuffer[17] = 0x13; // PSM HID_interrupt
+			cmd_inputBuffer[18] = 0x00; // -
+			cmd_inputBuffer[19] = 0x41; // local ID of the new channel requested
+			cmd_inputBuffer[20] = 0x00; // -
+			cmd_outputBuffer = (BYTE*)malloc(4);
+			while (mainLoop_continue && wiimotes[i]->state == STATE_HID_INTERRUPT_CONNECTION)
+			{
+				success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 21, cmd_outputBuffer, 4, &returned, NULL);
+				if (!success)
+				{
+					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+					exit_status = EXIT_FAILURE;
+				}
+				else
+				{
+					if (verbose) printf("Create L2CAP HID_interrupt connection\n");
+					ResetEvent(hEventCmdFinished);
+				}
+
+				// Wait for the end of the Connection command
+				WaitForSingleObject(hEventCmdFinished, 2000);
+			}
+
+			// State: Configure the "HID Interrupt" channel with the remote device. 
+			// Configuration request command (No options)
+			cmd_inputBuffer = (BYTE*)malloc(21);
+			cmd_inputBuffer[0] = 0x10; // Length of the IOCTL message
+			cmd_inputBuffer[1] = 0x00;
+			cmd_inputBuffer[2] = 0x00;
+			cmd_inputBuffer[3] = 0x00;
+			cmd_inputBuffer[4] = 0x02; // ACL data
+			cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
+			cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
+			cmd_inputBuffer[7] = 0x0C; // Length of the ACL message
+			cmd_inputBuffer[8] = 0x00;
+			cmd_inputBuffer[9] = 0x08;  // Length of the L2CAP message (CMD+msgId+Length+CID+Flags)
+			cmd_inputBuffer[10] = 0x00; // -
+			cmd_inputBuffer[11] = 0x01; // Signaling channel
+			cmd_inputBuffer[12] = 0x00; // -
+			cmd_inputBuffer[13] = 0x04; // CONFIGURATION_REQUEST
+			cmd_inputBuffer[14] = 0x02; // message id
+			cmd_inputBuffer[15] = 0x04; // Length of the command parameters (CID+Flags)
+			cmd_inputBuffer[16] = 0x00; // -
+			cmd_inputBuffer[17] = wiimotes[i]->hidInterruptChannel[0];
+			cmd_inputBuffer[18] = wiimotes[i]->hidInterruptChannel[1];
+			cmd_inputBuffer[19] = 0x00; // Flags
+			cmd_inputBuffer[20] = 0x00; // -
+			cmd_outputBuffer = (BYTE*)malloc(4);
+			while (mainLoop_continue && wiimotes[i]->state == STATE_HID_INTERRUPT_CONFIGURATION)
+			{
+				success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 21, cmd_outputBuffer, 4, &returned, NULL);
+				if (!success)
+				{
+					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+					exit_status = EXIT_FAILURE;
+				}
+				else
+				{
+					if (verbose) printf("Configure L2CAP HID_interrupt connection\n");
+					ResetEvent(hEventCmdFinished);
+				}
+
+				// Wait for the end of the Configuration request command
+				WaitForSingleObject(hEventCmdFinished, 2000);
+			}
+
+			// State: Repond to finish the configuration of the "HID Interrupt" channel with the remote device. 
+			// Configuration response command (success)
+			cmd_inputBuffer = (BYTE*)malloc(23);
+			cmd_inputBuffer[0] = 0x12; // Length of the IOCTL message
+			cmd_inputBuffer[1] = 0x00;
+			cmd_inputBuffer[2] = 0x00;
+			cmd_inputBuffer[3] = 0x00;
+			cmd_inputBuffer[4] = 0x02; // ACL data
+			cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
+			cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
+			cmd_inputBuffer[7] = 0x0E; // Length of the ACL message
+			cmd_inputBuffer[8] = 0x00;
+			cmd_inputBuffer[9] = 0x0A;  // Length of the L2CAP message
+			cmd_inputBuffer[10] = 0x00; // -
+			cmd_inputBuffer[11] = 0x01; // Signaling channel
+			cmd_inputBuffer[12] = 0x00; // -
+			cmd_inputBuffer[13] = 0x05; // CONFIGURATION_REPONSE
+			cmd_inputBuffer[14] = wiimotes[i]->l2capMessageId;
+			cmd_inputBuffer[15] = 0x06; // Length of the command parameters (CID+Flags)
+			cmd_inputBuffer[16] = 0x00; // -
+			cmd_inputBuffer[17] = wiimotes[i]->hidInterruptChannel[0];
+			cmd_inputBuffer[18] = wiimotes[i]->hidInterruptChannel[1];
+			cmd_inputBuffer[19] = 0x00; // Flags
+			cmd_inputBuffer[20] = 0x00; // -
+			cmd_inputBuffer[21] = 0x00; // Result = success
+			cmd_inputBuffer[22] = 0x00; // -
+			cmd_outputBuffer = (BYTE*)malloc(4);
+			success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 23, cmd_outputBuffer, 4, &returned, NULL);
+			if (!success)
+			{
+				printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+				exit_status = EXIT_FAILURE;
+			}
+			else
+			{
+				if (verbose) printf("Finish configuration L2CAP HID_interrupt connection\n");
+				ResetEvent(hEventCmdFinished);
+				wiimotes[i]->state = STATE_HID_INTERRUPT_CONNECTION;
+			}
+
+			// State: Set the LEDs of the Wiimote. 
+			cmd_inputBuffer = (BYTE*)malloc(16);
+			cmd_inputBuffer[0] = 0x0B; // Length of the IOCTL message
+			cmd_inputBuffer[1] = 0x00;
+			cmd_inputBuffer[2] = 0x00;
+			cmd_inputBuffer[3] = 0x00;
+			cmd_inputBuffer[4] = 0x02; // ACL data
+			cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
+			cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
+			cmd_inputBuffer[7] = 0x07; // Length of the ACL message
+			cmd_inputBuffer[8] = 0x00; // -
+			cmd_inputBuffer[9] = 0x03;  // Length of the L2CAP message
+			cmd_inputBuffer[10] = 0x00; // -
+			cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
+			cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
+			cmd_inputBuffer[13] = 0xA2; // Output report
+			cmd_inputBuffer[14] = 0x11; // Player LEDs
+										// Light the LEDs corresponding to the order of detection of the Wiimote
+			switch (wiimotes[i]->id)
+			{
+			case 1:
+				cmd_inputBuffer[15] = 0x10; // Set LED 1 
+				break;
+			case 2:
+				cmd_inputBuffer[15] = 0x20; // Set LED 2 
+				break;
+			case 3:
+				cmd_inputBuffer[15] = 0x40; // Set LED 3 
+				break;
+			case 4:
+				cmd_inputBuffer[15] = 0x80; // Set LED 4 
+				break;
+			case 5:
+				cmd_inputBuffer[15] = 0x90; // Set LED 1+4 
+				break;
+			case 6:
+				cmd_inputBuffer[15] = 0xA0; // Set LED 2+4 
+				break;
+			case 7:
+				cmd_inputBuffer[15] = 0xC0; // Set LED 3+4 
+				break;
+			}
+			cmd_outputBuffer = (BYTE*)malloc(4);
+			success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 16, cmd_outputBuffer, 4, &returned, NULL);
+			if (!success)
+			{
+				printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+				exit_status = EXIT_FAILURE;
+			}
+			else
+			{
+				if (verbose) printf("Set LEDs\n");
+				printf("Wiimote #%d connected\n", wiimotes[i]->id);
+				ResetEvent(hEventCmdFinished);
+			}
+
+		}
+	}
+
+	return exit_status;
 }
 
 int mainLoop_run()
@@ -477,7 +843,7 @@ int mainLoop_run()
 	}
 	else
 	{
-//		printf("Reset\n");
+		if (verbose) printf("Reset\n");
 		ResetEvent(hEventCmdFinished);
 	}
 	free(cmd_inputBuffer);
@@ -506,7 +872,7 @@ int mainLoop_run()
 	cmd_inputBuffer[11] = 0x02; // Length x 1.28s
 	cmd_inputBuffer[12] = 0x00; // No limit to the number of responses
 	cmd_outputBuffer = (BYTE*)malloc(4);
-	while (mainLoop_continue && currentState == STATE_BT_INQUIRY)
+	while (mainLoop_continue)
 	{
 		success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 13, cmd_outputBuffer, 4, &returned, NULL);
 		if (!success)
@@ -516,383 +882,33 @@ int mainLoop_run()
 		}
 		else
 		{
-//			printf("Start inquiry\n");
+			if (verbose) printf("Start inquiry\n");
 			ResetEvent(hEventCmdFinished);
 		}
 
 		Sleep(2560); // Length x 1280ms
 
-		// Break the loop when N Wiimotes are discovered (wiimote.state = BT_CONNECTION)
-		int nbOfDiscovered = 0;
-		for (int i = 0; i < NUMBER_OF_WIIMOTES; i++)
-		{
-			if (wiimotes[i] != NULL && wiimotes[i]->state == STATE_BT_CONNECTION)
-			{
-				nbOfDiscovered++;
-				if (nbOfDiscovered == 4)
-				{
-					currentState = STATE_BT_CONNECTION;
-					break;
-				}
-			}
-		}
+		// Connect the newly discovered Wiimotes
+		connectWiimotes();
+
+		// Ask the user to continue Inquiry
+		printf("Continue Inquiry ? (y/n): ");
+		char choice = getchar();
+		// Flush input buffer
+		char unwantedChar;
+		while ((unwantedChar = getchar()) != EOF && unwantedChar != '\n');
+		//scanf_s(" %c", &choice, 1); // Notes: The space is mandatory to avoid reading the \n stored by previous ENTER key press
+		printf("choice=%c\n", choice);
+		if (choice != 'y' && choice != 'Y') break;
 	}
 	free(cmd_inputBuffer);
 	free(cmd_outputBuffer);
 
-	// Execute the connection and configuration steps for all the newly discovered Wiimotes.
+	// Change report mode of connected Wiimotes
 	for (int i = 0; i < NUMBER_OF_WIIMOTES; i++)
 	{
-		if (wiimotes[i] != NULL && wiimotes[i]->state == STATE_BT_CONNECTION)
+		if (wiimotes[i] != NULL && wiimotes[i]->state != STATE_FINISHED)
 		{
-
-			// State: connect to the remote device. 
-			// Connection command
-			cmd_inputBuffer = (BYTE*)malloc(21);
-			cmd_inputBuffer[0] = 0x10; // Length of the IOCTL message
-			cmd_inputBuffer[1] = 0x00;
-			cmd_inputBuffer[2] = 0x00;
-			cmd_inputBuffer[3] = 0x00;
-			cmd_inputBuffer[4] = 0x01; // Command
-			cmd_inputBuffer[5] = 0x05; // CONNECT
-			cmd_inputBuffer[6] = 0x04;
-			cmd_inputBuffer[7] = 0x0D;
-			memcpy(cmd_inputBuffer + 8, wiimotes[i]->btAddr, 6);
-			cmd_inputBuffer[14] = 0x18; // packetType =  DH3,DM5,DH1,DH5,DM3,DM1 
-			cmd_inputBuffer[15] = 0xCC; // -
-			cmd_inputBuffer[16] = wiimotes[i]->pageScanRepetitionMode;
-			cmd_inputBuffer[17] = 0x00; // Reserved
-			memcpy(cmd_inputBuffer + 18, wiimotes[i]->clockOffset, 2);
-			cmd_inputBuffer[19] |= 0x80; // set bit 15: clockOffset is valid
-			cmd_inputBuffer[20] = 0x01; // allowRoleSwitch:ALLOWED 
-			cmd_outputBuffer = (BYTE*)malloc(4);
-			while (mainLoop_continue && wiimotes[i]->state == STATE_BT_CONNECTION)
-			{
-				success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 21, cmd_outputBuffer, 4, &returned, NULL);
-				if (!success)
-				{
-					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-					exit_status = EXIT_FAILURE;
-				}
-				else
-				{
-//					printf("Create BT connection\n");
-					ResetEvent(hEventCmdFinished);
-				}
-
-				// Wait for the end of the Connection command
-				WaitForSingleObject(hEventCmdFinished, 2000);
-			}
-
-			// State: Open a "HID Control" channel with the remote device. 
-			// Connection request command
-			cmd_inputBuffer = (BYTE*)malloc(21);
-			cmd_inputBuffer[0] = 0x10; // Length of the IOCTL message
-			cmd_inputBuffer[1] = 0x00;
-			cmd_inputBuffer[2] = 0x00;
-			cmd_inputBuffer[3] = 0x00;
-			cmd_inputBuffer[4] = 0x02; // ACL data
-			cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
-			cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
-			cmd_inputBuffer[7] = 0x0C; // Length of the ACL message
-			cmd_inputBuffer[8] = 0x00;
-			cmd_inputBuffer[9] = 0x08;  // Length of the L2CAP message (CMD+msgId+Length+PSM+CID)
-			cmd_inputBuffer[10] = 0x00; // -
-			cmd_inputBuffer[11] = 0x01; // Signaling channel
-			cmd_inputBuffer[12] = 0x00; // -
-			cmd_inputBuffer[13] = 0x02; // CONNECTION_REQUEST
-			cmd_inputBuffer[14] = 0x01; // message id
-			cmd_inputBuffer[15] = 0x04; // Length of the command parameters (PSM + CID)
-			cmd_inputBuffer[16] = 0x00; // -
-			cmd_inputBuffer[17] = 0x11; // PSM HID_control
-			cmd_inputBuffer[18] = 0x00; // -
-			cmd_inputBuffer[19] = 0x40; // local ID of the new channel requested
-			cmd_inputBuffer[20] = 0x00; // -
-			cmd_outputBuffer = (BYTE*)malloc(4);
-			while (mainLoop_continue && wiimotes[i]->state == STATE_HID_CONTROL_CONNECTION)
-			{
-				success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 21, cmd_outputBuffer, 4, &returned, NULL);
-				if (!success)
-				{
-					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-					exit_status = EXIT_FAILURE;
-				}
-				else
-				{
-//					printf("Create L2CAP HID_control connection\n");
-					ResetEvent(hEventCmdFinished);
-				}
-
-				// Wait for the end of the Connection command
-				WaitForSingleObject(hEventCmdFinished, 2000);
-			}
-
-			// State: Configure the "HID Control" channel with the remote device. 
-			// Configuration request command (No options)
-			cmd_inputBuffer = (BYTE*)malloc(21);
-			cmd_inputBuffer[0] = 0x10; // Length of the IOCTL message
-			cmd_inputBuffer[1] = 0x00;
-			cmd_inputBuffer[2] = 0x00;
-			cmd_inputBuffer[3] = 0x00;
-			cmd_inputBuffer[4] = 0x02; // ACL data
-			cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
-			cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
-			cmd_inputBuffer[7] = 0x0C; // Length of the ACL message
-			cmd_inputBuffer[8] = 0x00;
-			cmd_inputBuffer[9] = 0x08;  // Length of the L2CAP message (CMD+msgId+Length+CID+Flags)
-			cmd_inputBuffer[10] = 0x00; // -
-			cmd_inputBuffer[11] = 0x01; // Signaling channel
-			cmd_inputBuffer[12] = 0x00; // -
-			cmd_inputBuffer[13] = 0x04; // CONFIGURATION_REQUEST
-			cmd_inputBuffer[14] = 0x02; // message id
-			cmd_inputBuffer[15] = 0x04; // Length of the command parameters (CID+Flags)
-			cmd_inputBuffer[16] = 0x00; // -
-			cmd_inputBuffer[17] = wiimotes[i]->hidControlChannel[0];
-			cmd_inputBuffer[18] = wiimotes[i]->hidControlChannel[1];
-			cmd_inputBuffer[19] = 0x00; // Flags
-			cmd_inputBuffer[20] = 0x00; // -
-			cmd_outputBuffer = (BYTE*)malloc(4);
-			while (mainLoop_continue && wiimotes[i]->state == STATE_HID_CONTROL_CONFIGURATION)
-			{
-				success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 21, cmd_outputBuffer, 4, &returned, NULL);
-				if (!success)
-				{
-					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-					exit_status = EXIT_FAILURE;
-				}
-				else
-				{
-//					printf("Configure L2CAP HID_control connection\n");
-					ResetEvent(hEventCmdFinished);
-				}
-
-				// Wait for the end of the Configuration request command
-				WaitForSingleObject(hEventCmdFinished, 2000);
-			}
-
-			// State: Repond to finish the configuration of the "HID Control" channel with the remote device. 
-			// Configuration response command (success)
-			cmd_inputBuffer = (BYTE*)malloc(23);
-			cmd_inputBuffer[0] = 0x12; // Length of the IOCTL message
-			cmd_inputBuffer[1] = 0x00;
-			cmd_inputBuffer[2] = 0x00;
-			cmd_inputBuffer[3] = 0x00;
-			cmd_inputBuffer[4] = 0x02; // ACL data
-			cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
-			cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
-			cmd_inputBuffer[7] = 0x0E; // Length of the ACL message
-			cmd_inputBuffer[8] = 0x00;
-			cmd_inputBuffer[9] = 0x0A;  // Length of the L2CAP message
-			cmd_inputBuffer[10] = 0x00; // -
-			cmd_inputBuffer[11] = 0x01; // Signaling channel
-			cmd_inputBuffer[12] = 0x00; // -
-			cmd_inputBuffer[13] = 0x05; // CONFIGURATION_REPONSE
-			cmd_inputBuffer[14] = wiimotes[i]->l2capMessageId;
-			cmd_inputBuffer[15] = 0x06; // Length of the command parameters (CID+Flags)
-			cmd_inputBuffer[16] = 0x00; // -
-			cmd_inputBuffer[17] = wiimotes[i]->hidControlChannel[0];
-			cmd_inputBuffer[18] = wiimotes[i]->hidControlChannel[1];
-			cmd_inputBuffer[19] = 0x00; // Flags
-			cmd_inputBuffer[20] = 0x00; // -
-			cmd_inputBuffer[21] = 0x00; // Result = success
-			cmd_inputBuffer[22] = 0x00; // -
-			cmd_outputBuffer = (BYTE*)malloc(4);
-			success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 23, cmd_outputBuffer, 4, &returned, NULL);
-			if (!success)
-			{
-				printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-				exit_status = EXIT_FAILURE;
-			}
-			else
-			{
-//				printf("Finish configuration L2CAP HID_control connection\n");
-				ResetEvent(hEventCmdFinished);
-				wiimotes[i]->state = STATE_HID_INTERRUPT_CONNECTION;
-			}
-
-			// State: Open a "HID Interrupt" channel with the remote device. 
-			// Connection request command
-			cmd_inputBuffer = (BYTE*)malloc(21);
-			cmd_inputBuffer[0] = 0x10; // Length of the IOCTL message
-			cmd_inputBuffer[1] = 0x00;
-			cmd_inputBuffer[2] = 0x00;
-			cmd_inputBuffer[3] = 0x00;
-			cmd_inputBuffer[4] = 0x02; // ACL data
-			cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
-			cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
-			cmd_inputBuffer[7] = 0x0C; // Length of the ACL message
-			cmd_inputBuffer[8] = 0x00;
-			cmd_inputBuffer[9] = 0x08;  // Length of the L2CAP message (CMD+msgId+Length+PSM+CID)
-			cmd_inputBuffer[10] = 0x00; // -
-			cmd_inputBuffer[11] = 0x01; // Signaling channel
-			cmd_inputBuffer[12] = 0x00; // -
-			cmd_inputBuffer[13] = 0x02; // CONNECTION_REQUEST
-			cmd_inputBuffer[14] = 0x03; // message id
-			cmd_inputBuffer[15] = 0x04; // Length of the command parameters (PSM + CID)
-			cmd_inputBuffer[16] = 0x00; // -
-			cmd_inputBuffer[17] = 0x13; // PSM HID_interrupt
-			cmd_inputBuffer[18] = 0x00; // -
-			cmd_inputBuffer[19] = 0x41; // local ID of the new channel requested
-			cmd_inputBuffer[20] = 0x00; // -
-			cmd_outputBuffer = (BYTE*)malloc(4);
-			while (mainLoop_continue && wiimotes[i]->state == STATE_HID_INTERRUPT_CONNECTION)
-			{
-				success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 21, cmd_outputBuffer, 4, &returned, NULL);
-				if (!success)
-				{
-					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-					exit_status = EXIT_FAILURE;
-				}
-				else
-				{
-//					printf("Create L2CAP HID_interrupt connection\n");
-					ResetEvent(hEventCmdFinished);
-				}
-
-				// Wait for the end of the Connection command
-				WaitForSingleObject(hEventCmdFinished, 2000);
-			}
-
-			// State: Configure the "HID Interrupt" channel with the remote device. 
-			// Configuration request command (No options)
-			cmd_inputBuffer = (BYTE*)malloc(21);
-			cmd_inputBuffer[0] = 0x10; // Length of the IOCTL message
-			cmd_inputBuffer[1] = 0x00;
-			cmd_inputBuffer[2] = 0x00;
-			cmd_inputBuffer[3] = 0x00;
-			cmd_inputBuffer[4] = 0x02; // ACL data
-			cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
-			cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
-			cmd_inputBuffer[7] = 0x0C; // Length of the ACL message
-			cmd_inputBuffer[8] = 0x00;
-			cmd_inputBuffer[9] = 0x08;  // Length of the L2CAP message (CMD+msgId+Length+CID+Flags)
-			cmd_inputBuffer[10] = 0x00; // -
-			cmd_inputBuffer[11] = 0x01; // Signaling channel
-			cmd_inputBuffer[12] = 0x00; // -
-			cmd_inputBuffer[13] = 0x04; // CONFIGURATION_REQUEST
-			cmd_inputBuffer[14] = 0x02; // message id
-			cmd_inputBuffer[15] = 0x04; // Length of the command parameters (CID+Flags)
-			cmd_inputBuffer[16] = 0x00; // -
-			cmd_inputBuffer[17] = wiimotes[i]->hidInterruptChannel[0];
-			cmd_inputBuffer[18] = wiimotes[i]->hidInterruptChannel[1];
-			cmd_inputBuffer[19] = 0x00; // Flags
-			cmd_inputBuffer[20] = 0x00; // -
-			cmd_outputBuffer = (BYTE*)malloc(4);
-			while (mainLoop_continue && wiimotes[i]->state == STATE_HID_INTERRUPT_CONFIGURATION)
-			{
-				success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 21, cmd_outputBuffer, 4, &returned, NULL);
-				if (!success)
-				{
-					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-					exit_status = EXIT_FAILURE;
-				}
-				else
-				{
-//					printf("Configure L2CAP HID_interrupt connection\n");
-					ResetEvent(hEventCmdFinished);
-				}
-
-				// Wait for the end of the Configuration request command
-				WaitForSingleObject(hEventCmdFinished, 2000);
-			}
-
-			// State: Repond to finish the configuration of the "HID Interrupt" channel with the remote device. 
-			// Configuration response command (success)
-			cmd_inputBuffer = (BYTE*)malloc(23);
-			cmd_inputBuffer[0] = 0x12; // Length of the IOCTL message
-			cmd_inputBuffer[1] = 0x00;
-			cmd_inputBuffer[2] = 0x00;
-			cmd_inputBuffer[3] = 0x00;
-			cmd_inputBuffer[4] = 0x02; // ACL data
-			cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
-			cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
-			cmd_inputBuffer[7] = 0x0E; // Length of the ACL message
-			cmd_inputBuffer[8] = 0x00;
-			cmd_inputBuffer[9] = 0x0A;  // Length of the L2CAP message
-			cmd_inputBuffer[10] = 0x00; // -
-			cmd_inputBuffer[11] = 0x01; // Signaling channel
-			cmd_inputBuffer[12] = 0x00; // -
-			cmd_inputBuffer[13] = 0x05; // CONFIGURATION_REPONSE
-			cmd_inputBuffer[14] = wiimotes[i]->l2capMessageId;
-			cmd_inputBuffer[15] = 0x06; // Length of the command parameters (CID+Flags)
-			cmd_inputBuffer[16] = 0x00; // -
-			cmd_inputBuffer[17] = wiimotes[i]->hidInterruptChannel[0];
-			cmd_inputBuffer[18] = wiimotes[i]->hidInterruptChannel[1];
-			cmd_inputBuffer[19] = 0x00; // Flags
-			cmd_inputBuffer[20] = 0x00; // -
-			cmd_inputBuffer[21] = 0x00; // Result = success
-			cmd_inputBuffer[22] = 0x00; // -
-			cmd_outputBuffer = (BYTE*)malloc(4);
-			success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 23, cmd_outputBuffer, 4, &returned, NULL);
-			if (!success)
-			{
-				printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-				exit_status = EXIT_FAILURE;
-			}
-			else
-			{
-//				printf("Finish configuration L2CAP HID_interrupt connection\n");
-				ResetEvent(hEventCmdFinished);
-				wiimotes[i]->state = STATE_HID_INTERRUPT_CONNECTION;
-			}
-
-			// State: Set the LEDs of the Wiimote. 
-				
-			cmd_inputBuffer = (BYTE*)malloc(16);
-			cmd_inputBuffer[0] = 0x0B; // Length of the IOCTL message
-			cmd_inputBuffer[1] = 0x00;
-			cmd_inputBuffer[2] = 0x00;
-			cmd_inputBuffer[3] = 0x00;
-			cmd_inputBuffer[4] = 0x02; // ACL data
-			cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
-			cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
-			cmd_inputBuffer[7] = 0x07; // Length of the ACL message
-			cmd_inputBuffer[8] = 0x00; // -
-			cmd_inputBuffer[9] = 0x03;  // Length of the L2CAP message
-			cmd_inputBuffer[10] = 0x00; // -
-			cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
-			cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
-			cmd_inputBuffer[13] = 0xA2; // Output report
-			cmd_inputBuffer[14] = 0x11; // Player LEDs
-			// Light the LEDs corresponding to the order of detection of the Wiimote
-			switch (wiimotes[i]->id)
-			{
-			case 1:
-				cmd_inputBuffer[15] = 0x10; // Set LED 1 
-				break;
-			case 2:
-				cmd_inputBuffer[15] = 0x20; // Set LED 2 
-				break;
-			case 3:
-				cmd_inputBuffer[15] = 0x40; // Set LED 3 
-				break;
-			case 4:
-				cmd_inputBuffer[15] = 0x80; // Set LED 4 
-				break;
-			case 5:
-				cmd_inputBuffer[15] = 0x90; // Set LED 1+4 
-				break;
-			case 6:
-				cmd_inputBuffer[15] = 0xA0; // Set LED 2+4 
-				break;
-			case 7:
-				cmd_inputBuffer[15] = 0xC0; // Set LED 3+4 
-				break;
-			}
-			cmd_outputBuffer = (BYTE*)malloc(4);
-			success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 16, cmd_outputBuffer, 4, &returned, NULL);
-			if (!success)
-			{
-				printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-				exit_status = EXIT_FAILURE;
-			}
-			else
-			{
-//				printf("Set LEDs\n");
-				printf("Wiimote #%d connected\n", wiimotes[i]->id);
-				ResetEvent(hEventCmdFinished);
-			}
-
 			// State: Set report mode of the Wiimote
 			cmd_inputBuffer = (BYTE*)malloc(17);
 			cmd_inputBuffer[0] = 0x0C; // Length of the IOCTL message
@@ -921,7 +937,7 @@ int mainLoop_run()
 			}
 			else
 			{
-//				printf("Set Data Reporting Mode\n");
+				if (verbose) printf("Set Data Reporting Mode\n");
 				ResetEvent(hEventCmdFinished);
 			}
 		}
@@ -975,7 +991,7 @@ int mainLoop_run()
 				}
 				else
 				{
-//					printf("Request L2CAP HID_control disconnection\n");
+					if (verbose) printf("Request L2CAP HID_control disconnection\n");
 					ResetEvent(hEventCmdFinished);
 				}
 
@@ -1018,7 +1034,7 @@ int mainLoop_run()
 				}
 				else
 				{
-//					printf("Request L2CAP HID_interrupt disconnection\n");
+					if (verbose) printf("Request L2CAP HID_interrupt disconnection\n");
 					ResetEvent(hEventCmdFinished);
 				}
 
