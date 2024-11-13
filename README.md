@@ -41,6 +41,7 @@ MMMM msg/s 1:<>v^+21BA-H ±XXX ±YYY ±ZZZ 2:<>v^+21BA-H ±XXX ±YYY ±ZZZ 3:<>v
 ```
 Where:
 - `MMMM msg/s` is the number of ACL messages received by second.
+- `1:`, `2:` etc. is the number assigned to the Wiimote.
 - `<` is D-Pad left.
 - `>` is D-Pad right.
 - `v` is D-Pad down.
