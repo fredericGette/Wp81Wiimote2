@@ -3,6 +3,7 @@
 An other demonstration of the usage of a Wiimote with Windows Phone 8.1  
 This time, the communication is done at the HCI level.  
 Works with genuine and 3rd party Wiimotes. 
+Can connect up to 7 Wiimotes (tested with 6).
 
 See also my previous projects on the same topic:  
 - [Wp81Wiimote](https://github.com/fredericGette/Wp81Wiimote)
@@ -21,12 +22,13 @@ TODO
 Currently, when you start the executable it does the following steps:  
 - Stop the communication between the Windows Bluetooth stack and the Qualcomm Bluetooth stack.  
 - Reset the Bluetooth controller.  
-- Start *Inquiry* in a loop to detect 4 Bluetooth devices (you have to press simultaneously the buttons 1 and 2 of the Wiimote). It exits the loop as soon as 4 devices are detected.
+- Start *Inquiry* in a loop to detect Bluetooth devices (you have to press simultaneously the buttons 1 and 2 of the Wiimote). 
 - Establish a Bluetooth connection with the Bluetooth devices.
 - Open and configure a *HID control* channel with the Bluetooth devices.
 - Open and configure a *HID interrupt* channel with the Bluetooth devices.
 - Set the LED of the Wiimotes (the LED# corresponds to the order of the detection of the Wiimote).
-- Read the inputs of the Wiimotes (buttons and accelerometer)
+- Start again the *Inquiry* phase until the user chooses to stop it.
+- Read the inputs of the Wiimotes (buttons and accelerometer).
 
 To stop the executable, press Ctrl+C, then disable Bluetooth on the Windows Phone.  
 
