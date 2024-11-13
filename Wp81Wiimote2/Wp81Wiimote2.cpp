@@ -25,18 +25,20 @@ static void usage(char *programName)
 		"Usage:\n", programName);
 	printf("\t%s [options]\n", programName);
 	printf("options:\n"
-		"\t-h, --help             Show help options\n");
+		"\t-h, --help             Show help options\n"
+		"\t-v, --verbose          Increase verbosity\n");
 }
 
 static const struct option main_options[] = {
 	{ "help",      no_argument,       NULL, 'h' },
+	{ "verbose",   no_argument,       NULL, 'v' },
 	{}
 };
 
 int main(int argc, char* argv[])
 {
 	int exit_status = EXIT_SUCCESS;
-	verbose = FALSE;
+	BOOL verbose = FALSE;
 
 	SetConsoleCtrlHandler(consoleHandler, TRUE);
 
@@ -44,7 +46,7 @@ int main(int argc, char* argv[])
 		int opt;
 
 		opt = getopt_long(argc, argv,
-			"h",
+			"hv",
 			main_options, NULL);
 
 		if (opt < 0) {
@@ -56,13 +58,17 @@ int main(int argc, char* argv[])
 		case 'h':
 			usage(argv[0]);
 			return EXIT_SUCCESS;
+		case 'v':
+			printf("Verbose mode\n");
+			verbose = TRUE;
+			break;
 		default:
 			usage(argv[0]);
 			return EXIT_FAILURE;
 		}
 	}
 
-	exit_status = mainLoop_run();
+	exit_status = mainLoop_run(verbose);
 
 	return exit_status;
 }

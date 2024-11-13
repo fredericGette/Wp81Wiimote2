@@ -47,6 +47,7 @@ static DWORD previousTickCount;
 static DWORD previousMsgCount;
 static DWORD msgCount;
 static DWORD tickCount;
+static BOOL verbose;
 
 // Debug helper
 void printBuffer2HexString(BYTE* buffer, size_t bufSize)
@@ -414,7 +415,7 @@ int connectWiimotes()
 	BYTE* cmd_inputBuffer;
 	BYTE* cmd_outputBuffer;
 	BOOL success;
-	int exit_status = EXIT_SUCCESS;
+	int nbConnected = 0;
 
 	// Execute the connection and configuration steps for all the newly discovered Wiimotes.
 	for (int i = 0; i < NUMBER_OF_WIIMOTES; i++)
@@ -448,7 +449,6 @@ int connectWiimotes()
 				if (!success)
 				{
 					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-					exit_status = EXIT_FAILURE;
 				}
 				else
 				{
@@ -491,7 +491,6 @@ int connectWiimotes()
 				if (!success)
 				{
 					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-					exit_status = EXIT_FAILURE;
 				}
 				else
 				{
@@ -534,7 +533,6 @@ int connectWiimotes()
 				if (!success)
 				{
 					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-					exit_status = EXIT_FAILURE;
 				}
 				else
 				{
@@ -577,7 +575,6 @@ int connectWiimotes()
 			if (!success)
 			{
 				printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-				exit_status = EXIT_FAILURE;
 			}
 			else
 			{
@@ -617,7 +614,6 @@ int connectWiimotes()
 				if (!success)
 				{
 					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-					exit_status = EXIT_FAILURE;
 				}
 				else
 				{
@@ -660,7 +656,6 @@ int connectWiimotes()
 				if (!success)
 				{
 					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-					exit_status = EXIT_FAILURE;
 				}
 				else
 				{
@@ -703,7 +698,6 @@ int connectWiimotes()
 			if (!success)
 			{
 				printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-				exit_status = EXIT_FAILURE;
 			}
 			else
 			{
@@ -759,22 +753,32 @@ int connectWiimotes()
 			if (!success)
 			{
 				printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-				exit_status = EXIT_FAILURE;
 			}
 			else
 			{
 				if (verbose) printf("Set LEDs\n");
 				printf("Wiimote #%d connected\n", wiimotes[i]->id);
+				nbConnected++;
 				ResetEvent(hEventCmdFinished);
 			}
 
 		}
 	}
 
-	return exit_status;
+	return nbConnected;
 }
 
-int mainLoop_run()
+char askChoice()
+{
+	char choice = getchar();
+	// Flush input buffer
+	char unwantedChar;
+	while ((unwantedChar = getchar()) != EOF && unwantedChar != '\n');
+	printf("choice=%c\n", choice);
+	return choice;
+}
+
+int mainLoop_run(BOOL _verbose)
 {
 	DWORD returned;
 	BYTE* cmd_inputBuffer;
@@ -782,6 +786,8 @@ int mainLoop_run()
 	BOOL success;
 	int exit_status = EXIT_SUCCESS;
 	int maxRetries;
+	verbose = _verbose;
+	printf("verbose=%d\n", verbose);
 
 	mainLoop_continue = TRUE;
 	readLoop_continue = TRUE;
@@ -872,6 +878,7 @@ int mainLoop_run()
 	cmd_inputBuffer[11] = 0x02; // Length x 1.28s
 	cmd_inputBuffer[12] = 0x00; // No limit to the number of responses
 	cmd_outputBuffer = (BYTE*)malloc(4);
+	maxRetries = 2;
 	while (mainLoop_continue)
 	{
 		success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 13, cmd_outputBuffer, 4, &returned, NULL);
@@ -889,16 +896,18 @@ int mainLoop_run()
 		Sleep(2560); // Length x 1280ms
 
 		// Connect the newly discovered Wiimotes
-		connectWiimotes();
+		if (!connectWiimotes() && maxRetries > 0)
+		{
+			// Retries several times when no newly Wiimotes are detected/connected.
+			maxRetries--;
+			continue;
+		}
+		maxRetries = 2;
 
 		// Ask the user to continue Inquiry
+		// "no" means the user doesn't want to connect additional Wiimotes
 		printf("Continue Inquiry ? (y/n): ");
-		char choice = getchar();
-		// Flush input buffer
-		char unwantedChar;
-		while ((unwantedChar = getchar()) != EOF && unwantedChar != '\n');
-		//scanf_s(" %c", &choice, 1); // Notes: The space is mandatory to avoid reading the \n stored by previous ENTER key press
-		printf("choice=%c\n", choice);
+		char choice = askChoice();
 		if (choice != 'y' && choice != 'Y') break;
 	}
 	free(cmd_inputBuffer);
