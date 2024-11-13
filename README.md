@@ -118,4 +118,6 @@ powertool -reboot
 
 Wiimote specifications are available at [Wiimote - WiiBrew](https://wiibrew.org/wiki/Wiimote)
 
-`(a2) 12 04 33` requests continuous reporting. The frequency is ~100 reports/s with a genuine Wiimote, but can be ~250 reports/s with a 3rd party Wiimote.
+`(a2) 12 04 33` requests continuous reporting.  
+The frequency is ~100 reports/s with a genuine Wiimote, but can be ~250 reports/s with a 3rd party Wiimote.  
+The maximum read rate of the current version of this program seems to be around 650 reports/s.  
