@@ -336,7 +336,7 @@ void removeL2CapChannel(BYTE* disconnectionResponse)
 	}
 }
 
-void printInputReportWithoutCamera(int i, BYTE* inputReport)
+void printInputReport(int i, BYTE* inputReport)
 {
 
 	// Print a line only when the state of a button change
@@ -349,8 +349,7 @@ void printInputReportWithoutCamera(int i, BYTE* inputReport)
 		previousTickCount = tickCount;
 		previousMsgCount = msgCount;
 
-		// use one column of 27 characters by Wiimote
-		printf("%*c%d:", (wiimotes[i]->id - 1) * 27, ' ', wiimotes[i]->id);
+		printf("%d:", wiimotes[i]->id);
 		if ((inputReport[15] & 0x01) > 0) printf("<");
 		else printf(" ");
 		if ((inputReport[15] & 0x02) > 0) printf(">");
@@ -377,7 +376,42 @@ void printInputReportWithoutCamera(int i, BYTE* inputReport)
 		DWORD X = (inputReport[17] << 2) + ((inputReport[15] & 0x60) >> 5) - 512;
 		DWORD Y = (inputReport[18] << 2) + ((inputReport[16] & 0x20) >> 4) - 512;
 		DWORD Z = (inputReport[19] << 2) + ((inputReport[16] & 0x40) >> 5) - 512;
-		printf("%+03d %+03d %+03d", X, Y, Z);
+		printf("%+04d %+04d %+04d", X, Y, Z);
+
+		if (inputReport[14] == 0x37)
+		{
+			// Print IR camera data
+			DWORD X1 = inputReport[20] + ((inputReport[22] & 0x30) << 4);
+			DWORD Y1 = inputReport[21] + ((inputReport[22] & 0xC0) << 2);
+			DWORD X2 = inputReport[23] + ((inputReport[22] & 0x03) << 8);
+			DWORD Y2 = inputReport[24] + ((inputReport[22] & 0x0C) << 6);
+
+			DWORD X3 = inputReport[25] + ((inputReport[27] & 0x30) << 4);
+			DWORD Y3 = inputReport[26] + ((inputReport[27] & 0xC0) << 2);
+			DWORD X4 = inputReport[28] + ((inputReport[27] & 0x03) << 8);
+			DWORD Y4 = inputReport[29] + ((inputReport[27] & 0x0C) << 6);
+
+			if (X1 == 1023 || Y1 == 1023)
+				printf(" --empty--");
+			else
+				printf(" %04d %04d", X1, Y1);
+
+			if (X2 == 1023 || Y2 == 1023)
+				printf(" --empty--");
+			else
+				printf(" %04d %04d", X2, Y2);
+
+			if (X3 == 1023 || Y3 == 1023)
+				printf(" --empty--");
+			else
+				printf(" %04d %04d", X3, Y3);
+
+			if (X4 == 1023 || Y4 == 1023)
+				printf(" --empty--");
+			else
+				printf(" %04d %04d", X4, Y4);
+
+		}
 
 		printf("\n");
 	}
@@ -387,32 +421,15 @@ void printInputReportWithoutCamera(int i, BYTE* inputReport)
 
 }
 
-void printInputReportWithCamera(int i, BYTE* inputReport)
-{
-	BYTE emptyIr[10] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
-
-	if (memcmp(inputReport + 20, emptyIr, 10) != 0)
-	{
-		printf("*** IR detected ! ***\n");
-	}
-
-	printInputReportWithoutCamera(i, inputReport);
-
-}
-
 void printInputReport(BYTE* inputReport)
 {
 	for (int i = 0; i < NUMBER_OF_WIIMOTES; i++)
 	{
 		if (wiimotes[i] != NULL && wiimotes[i]->connectionHandle[0] == inputReport[5])
 		{
-			if (inputReport[14] == 0x31)
+			if (inputReport[14] == 0x31 || inputReport[14] == 0x37)
 			{
-				printInputReportWithoutCamera(i, inputReport);
-			}
-			else if (inputReport[14] == 0x37)
-			{
-				printInputReportWithCamera(i, inputReport);
+				printInputReport(i, inputReport);
 			}
 
 			return;
@@ -551,25 +568,25 @@ DWORD WINAPI readAclData(void* data)
 				// INPUT REPORT (0xA1)
 				printInputReport(readAcl_outputBuffer);
 			}
-			//else if (returned == 19 && readAcl_outputBuffer[13] == 0xA1 && readAcl_outputBuffer[14] == 0x22 && memcmp(readAcl_outputBuffer + 11, cidLocalHidInterrupt, 2) == 0)
-			//{
-			//	// Acknowledge output report, return function result (0xA1 0x22)
-			//	if (verbose) printf("Received: Acknowledge output report 0x%02X, result=0x%02X\n", readAcl_outputBuffer[17], readAcl_outputBuffer[18]);
-			//	updateCameraState(readAcl_outputBuffer);
-			//	SetEvent(hEventCmdFinished);
-			//}
-			//else if (returned > 14 && readAcl_outputBuffer[13] == 0xA1 && readAcl_outputBuffer[14] == 0x21 && memcmp(readAcl_outputBuffer + 11, cidLocalHidInterrupt, 2) == 0)
-			//{
-			//	// Read memory and registers data (0xA1 0x21)
-			//	if (verbose) printf("**** Read memory and registers data, length=%d ****\n", returned);
-			//	if (verbose) printBuffer2HexString(readAcl_outputBuffer, returned);
-			//}
-			//else if (returned > 14 && readAcl_outputBuffer[13] == 0xA1 && readAcl_outputBuffer[14] == 0x20 && memcmp(readAcl_outputBuffer + 11, cidLocalHidInterrupt, 2) == 0)
-			//{
-			//	// Status reporting (0xA1 0x20)
-			//	if (verbose) printf("**** Status reporting ****\n");
-			//	if (verbose) printBuffer2HexString(readAcl_outputBuffer, returned);
-			//}
+			else if (returned == 19 && readAcl_outputBuffer[13] == 0xA1 && readAcl_outputBuffer[14] == 0x22 && memcmp(readAcl_outputBuffer + 11, cidLocalHidInterrupt, 2) == 0)
+			{
+				// Acknowledge output report, return function result (0xA1 0x22)
+				if (verbose) printf("Received: Acknowledge output report 0x%02X, result=0x%02X\n", readAcl_outputBuffer[17], readAcl_outputBuffer[18]);
+				updateCameraState(readAcl_outputBuffer);
+				SetEvent(hEventCmdFinished);
+			}
+			else if (returned > 14 && readAcl_outputBuffer[13] == 0xA1 && readAcl_outputBuffer[14] == 0x21 && memcmp(readAcl_outputBuffer + 11, cidLocalHidInterrupt, 2) == 0)
+			{
+				// Read memory and registers data (0xA1 0x21)
+				if (verbose) printf("**** Read memory and registers data, length=%d ****\n", returned);
+				if (verbose) printBuffer2HexString(readAcl_outputBuffer, returned);
+			}
+			else if (returned > 14 && readAcl_outputBuffer[13] == 0xA1 && readAcl_outputBuffer[14] == 0x20 && memcmp(readAcl_outputBuffer + 11, cidLocalHidInterrupt, 2) == 0)
+			{
+				// Status reporting (0xA1 0x20)
+				if (verbose) printf("**** Status reporting ****\n");
+				if (verbose) printBuffer2HexString(readAcl_outputBuffer, returned);
+			}
 		}
 		else
 		{
@@ -1061,559 +1078,452 @@ char askChoice()
 	return choice;
 }
 
-void activateAndConfigureCamera(int i)
+void activateAndConfigureCamera()
 {
 	DWORD returned;
 	BYTE* cmd_inputBuffer;
 	BYTE* cmd_outputBuffer;
 	BOOL success;
 
-	// First deactivation of the IR camera
-	cmd_inputBuffer = (BYTE*)malloc(16);
-	cmd_inputBuffer[0] = 0x0B; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
-	cmd_inputBuffer[7] = 0x07; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = 0x03;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
-	cmd_inputBuffer[13] = 0xA2;	// Output report
-	cmd_inputBuffer[14] = 0x13;	// IR Camera Enable
-	cmd_inputBuffer[15] = 0x00; // Disable a 24MHz pixel clock on pin 7 of the camera, and ask confirmation.
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	printBuffer2HexString(cmd_inputBuffer, 16);
-	success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 16, cmd_outputBuffer, 4, &returned, NULL);
-	if (!success)
+	// Execute the activation and configuration steps for all the newly discovered Wiimotes.
+	for (int i = 0; i < NUMBER_OF_WIIMOTES; i++)
 	{
-		printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-	}
-	else
-	{
-		ResetEvent(hEventCmdFinished);
-		if (verbose) printf("Disable IR Camera Enable 1\n");
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
-
-	Sleep(50);
-
-	// Second deactivation of the IR camera
-	cmd_inputBuffer = (BYTE*)malloc(16);
-	cmd_inputBuffer[0] = 0x0B; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
-	cmd_inputBuffer[7] = 0x07; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = 0x03;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
-	cmd_inputBuffer[13] = 0xA2;	// Output report
-	cmd_inputBuffer[14] = 0x1A;	// IR Camera Enable 2
-	cmd_inputBuffer[15] = 0x00; // Push pin 4 of the camera high
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	printBuffer2HexString(cmd_inputBuffer, 16);
-	success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 16, cmd_outputBuffer, 4, &returned, NULL);
-	if (!success)
-	{
-		printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-	}
-	else
-	{
-		ResetEvent(hEventCmdFinished);
-		if (verbose) printf("Disable IR Camera Enable 2\n");
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
-
-	Sleep(50);
-
-	// Ask status
-	cmd_inputBuffer = (BYTE*)malloc(16);
-	cmd_inputBuffer[0] = 0x0B; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
-	cmd_inputBuffer[7] = 0x07; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = 0x03;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
-	cmd_inputBuffer[13] = 0xA2;	// Output report
-	cmd_inputBuffer[14] = 0x15;	// Set Data Reporting Mode:
-	cmd_inputBuffer[15] = 0x00; // Reporting when data change
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	printBuffer2HexString(cmd_inputBuffer, 16);
-	success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 16, cmd_outputBuffer, 4, &returned, NULL);
-	if (!success)
-	{
-		printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-	}
-	else
-	{
-		if (verbose) printf("Ask status\n");
-		ResetEvent(hEventCmdFinished);
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
-
-	Sleep(1000);
-
-	// State: first activation of the IR camera
-	cmd_inputBuffer = (BYTE*)malloc(16);
-	cmd_inputBuffer[0] = 0x0B; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
-	cmd_inputBuffer[7] = 0x07; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = 0x03;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
-	cmd_inputBuffer[13] = 0xA2;	// Output report
-	cmd_inputBuffer[14] = 0x13;	// IR Camera Enable
-	cmd_inputBuffer[15] = 0x06; // Enable a 24MHz pixel clock on pin 7 of the camera, and ask confirmation.
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	wiimotes[i]->state = STATE_WIIMOTE_ACTIVATE_CAMERA_1;
-	while (mainLoop_continue && wiimotes[i]->state == STATE_WIIMOTE_ACTIVATE_CAMERA_1)
-	{
-		printBuffer2HexString(cmd_inputBuffer, 16);
-		success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 16, cmd_outputBuffer, 4, &returned, NULL);
-		if (!success)
+		if (wiimotes[i] != NULL && wiimotes[i]->state != STATE_WIIMOTE_READ_INPUTS)
 		{
-			printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-		}
-		else
-		{
-			ResetEvent(hEventCmdFinished);
-			if (verbose) printf("IR Camera Enable 1\n");
-		}
-		// Wait for the end of the command
-		WaitForSingleObject(hEventCmdFinished, 1000);
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
+			// State: set data reporting mode without camera
+			cmd_inputBuffer = (BYTE*)malloc(17);
+			cmd_inputBuffer[0] = 0x0C; // Length of the IOCTL message
+			cmd_inputBuffer[1] = 0x00;
+			cmd_inputBuffer[2] = 0x00;
+			cmd_inputBuffer[3] = 0x00;
+			cmd_inputBuffer[4] = 0x02; // ACL data
+			cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
+			cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
+			cmd_inputBuffer[7] = 0x08; // Length of the ACL message
+			cmd_inputBuffer[8] = 0x00; // -
+			cmd_inputBuffer[9] = 0x04;  // Length of the L2CAP message
+			cmd_inputBuffer[10] = 0x00; // -
+			cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
+			cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
+			cmd_inputBuffer[13] = 0xA2; // Output report
+			cmd_inputBuffer[14] = 0x12; // Set data reporting mode
+			cmd_inputBuffer[15] = 0x00; // Report only when data has changed
+			cmd_inputBuffer[16] = 0x31; // Core Buttons and Accelerometer
+			cmd_outputBuffer = (BYTE*)malloc(4);
+			success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 17, cmd_outputBuffer, 4, &returned, NULL);
+			if (!success)
+			{
+				printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+			}
+			else
+			{
+				printf("Mode 0x31\n");
+			}
+			free(cmd_inputBuffer);
+			free(cmd_outputBuffer);
 
-	// State: second activation of the IR camera
-	cmd_inputBuffer = (BYTE*)malloc(16);
-	cmd_inputBuffer[0] = 0x0B; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
-	cmd_inputBuffer[7] = 0x07; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = 0x03;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
-	cmd_inputBuffer[13] = 0xA2;	// Output report
-	cmd_inputBuffer[14] = 0x1A;	// IR Camera Enable 2
-	cmd_inputBuffer[15] = 0x06; // Pull pin 4 of the camera low, and ask confirmation
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	wiimotes[i]->state = STATE_WIIMOTE_ACTIVATE_CAMERA_2;
-	while (mainLoop_continue && wiimotes[i]->state == STATE_WIIMOTE_ACTIVATE_CAMERA_2)
-	{
-		printBuffer2HexString(cmd_inputBuffer, 16);
-		success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 16, cmd_outputBuffer, 4, &returned, NULL);
-		if (!success)
-		{
-			printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-		}
-		else
-		{
-			ResetEvent(hEventCmdFinished);
-			if (verbose) printf("IR Camera Enable 2\n");
-		}
-		// Wait for the end of the command
-		WaitForSingleObject(hEventCmdFinished, 1000);
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
+			// State: first activation of the IR camera
+			cmd_inputBuffer = (BYTE*)malloc(16);
+			cmd_inputBuffer[0] = 0x0B; // Length of the IOCTL message
+			cmd_inputBuffer[1] = 0x00;
+			cmd_inputBuffer[2] = 0x00;
+			cmd_inputBuffer[3] = 0x00;
+			cmd_inputBuffer[4] = 0x02; // ACL data
+			cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
+			cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
+			cmd_inputBuffer[7] = 0x07; // Length of the ACL message
+			cmd_inputBuffer[8] = 0x00; // -
+			cmd_inputBuffer[9] = 0x03;  // Length of the L2CAP message
+			cmd_inputBuffer[10] = 0x00; // -
+			cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
+			cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
+			cmd_inputBuffer[13] = 0xA2; // Output report
+			cmd_inputBuffer[14] = 0x13; // IR Camera Enable
+			cmd_inputBuffer[15] = 0x06; // Activate + request for acknowledgement
+			cmd_outputBuffer = (BYTE*)malloc(4);
+			wiimotes[i]->state = STATE_WIIMOTE_ACTIVATE_CAMERA_1;
+			while (mainLoop_continue && wiimotes[i]->state == STATE_WIIMOTE_ACTIVATE_CAMERA_1)
+			{
+				success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 16, cmd_outputBuffer, 4, &returned, NULL);
+				if (!success)
+				{
+					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+				}
+				else
+				{
+					ResetEvent(hEventCmdFinished);
+					if (verbose) printf("Enable IR Pixel Clock\n");
+				}
+				// Wait for the end of the command
+				WaitForSingleObject(hEventCmdFinished, 1000);
+			}
+			free(cmd_inputBuffer);
+			free(cmd_outputBuffer);
 
-	// State: Camera configuration, write 0x08 to register 0xb00030 (Start configuration)
-	cmd_inputBuffer = (BYTE*)malloc(36);
-	cmd_inputBuffer[0] = 0x1F; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
-	cmd_inputBuffer[7] = 0x1B; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = 0x17;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
-	cmd_inputBuffer[13] = 0xA2;	// Output report
-	cmd_inputBuffer[14] = 0x16;	// Write Memory and Registers
-	cmd_inputBuffer[15] = 0x04;	// Control registers
-	cmd_inputBuffer[16] = 0xB0;	// register 0xb00030
-	cmd_inputBuffer[17] = 0x00;	// -
-	cmd_inputBuffer[18] = 0x30;	// -
-	cmd_inputBuffer[19] = 0x01;	// Length of the data
-	cmd_inputBuffer[20] = 0x01; // Data
-	cmd_inputBuffer[21] = 0x00; // Padding
-	cmd_inputBuffer[22] = 0x00; // -
-	cmd_inputBuffer[23] = 0x00; // -
-	cmd_inputBuffer[24] = 0x00; // -
-	cmd_inputBuffer[25] = 0x00; // -
-	cmd_inputBuffer[26] = 0x00; // -
-	cmd_inputBuffer[27] = 0x00; // -
-	cmd_inputBuffer[28] = 0x00; // -
-	cmd_inputBuffer[29] = 0x00; // -
-	cmd_inputBuffer[30] = 0x00; // -
-	cmd_inputBuffer[31] = 0x00; // -
-	cmd_inputBuffer[32] = 0x00; // -
-	cmd_inputBuffer[33] = 0x00; // -
-	cmd_inputBuffer[34] = 0x00; // -
-	cmd_inputBuffer[35] = 0x00; // -
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	wiimotes[i]->state = STATE_WIIMOTE_START_CAMERA_CONFIGURATION;
-	while (mainLoop_continue && wiimotes[i]->state == STATE_WIIMOTE_START_CAMERA_CONFIGURATION)
-	{
-		printBuffer2HexString(cmd_inputBuffer, 36);
-		success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 36, cmd_outputBuffer, 4, &returned, NULL);
-		if (!success)
-		{
-			printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-		}
-		else
-		{
-			if (verbose) printf("IR Camera Start configuration\n");
-			ResetEvent(hEventCmdFinished);
-		}
-		// Wait for the end of the command
-		WaitForSingleObject(hEventCmdFinished, 1000);
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
+			// State: second activation of the IR camera
+			cmd_inputBuffer = (BYTE*)malloc(16);
+			cmd_inputBuffer[0] = 0x0B; // Length of the IOCTL message
+			cmd_inputBuffer[1] = 0x00;
+			cmd_inputBuffer[2] = 0x00;
+			cmd_inputBuffer[3] = 0x00;
+			cmd_inputBuffer[4] = 0x02; // ACL data
+			cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
+			cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
+			cmd_inputBuffer[7] = 0x07; // Length of the ACL message
+			cmd_inputBuffer[8] = 0x00; // -
+			cmd_inputBuffer[9] = 0x03;  // Length of the L2CAP message
+			cmd_inputBuffer[10] = 0x00; // -
+			cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
+			cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
+			cmd_inputBuffer[13] = 0xA2; // Output report
+			cmd_inputBuffer[14] = 0x1A; // IR Camera Enable 2
+			cmd_inputBuffer[15] = 0x06; // Activate + request for acknowledgement
+			cmd_outputBuffer = (BYTE*)malloc(4);
+			wiimotes[i]->state = STATE_WIIMOTE_ACTIVATE_CAMERA_2;
+			while (mainLoop_continue && wiimotes[i]->state == STATE_WIIMOTE_ACTIVATE_CAMERA_2)
+			{
+				success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 16, cmd_outputBuffer, 4, &returned, NULL);
+				if (!success)
+				{
+					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+				}
+				else
+				{
+					ResetEvent(hEventCmdFinished);
+					if (verbose) printf("Enable IR Logic\n");
+				}
+				// Wait for the end of the command
+				WaitForSingleObject(hEventCmdFinished, 1000);
+			}
+			free(cmd_inputBuffer);
+			free(cmd_outputBuffer);
 
-	// State: Camera configuration, write Sensitivity Block 1 to registers at 0xb00000
-	cmd_inputBuffer = (BYTE*)malloc(36);
-	cmd_inputBuffer[0] = 0x1F; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
-	cmd_inputBuffer[7] = 0x1B; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = 0x17;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
-	cmd_inputBuffer[13] = 0xA2;	// Output report
-	cmd_inputBuffer[14] = 0x16;	// Write Memory and Registers
-	cmd_inputBuffer[15] = 0x04;	// Control registers
-	cmd_inputBuffer[16] = 0xB0;	// register 0xb00000
-	cmd_inputBuffer[17] = 0x00;	// -
-	cmd_inputBuffer[18] = 0x00;	// -
-	cmd_inputBuffer[19] = 0x09;	// Length of the data
-	cmd_inputBuffer[20] = 0x02; // Data (Wii level 3)
-	cmd_inputBuffer[21] = 0x00; // -
-	cmd_inputBuffer[22] = 0x00; // -
-	cmd_inputBuffer[23] = 0x71; // -
-	cmd_inputBuffer[24] = 0x01; // -
-	cmd_inputBuffer[25] = 0x00; // -
-	cmd_inputBuffer[26] = 0xAA; // -
-	cmd_inputBuffer[27] = 0x00; // -
-	cmd_inputBuffer[28] = 0x64; // - intensity sensitivity
-	cmd_inputBuffer[28] = 0x00; // Padding
-	cmd_inputBuffer[29] = 0x00; // -
-	cmd_inputBuffer[30] = 0x00; // -
-	cmd_inputBuffer[31] = 0x00; // -
-	cmd_inputBuffer[32] = 0x00; // -
-	cmd_inputBuffer[33] = 0x00; // -
-	cmd_inputBuffer[34] = 0x00; // -
-	cmd_inputBuffer[35] = 0x00; // -
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	wiimotes[i]->state = STATE_WIIMOTE_CONFIGURE_CAMERA_SENSIBILITY_1;
-	while (mainLoop_continue && wiimotes[i]->state == STATE_WIIMOTE_CONFIGURE_CAMERA_SENSIBILITY_1)
-	{
-		printBuffer2HexString(cmd_inputBuffer, 36);
-		success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 36, cmd_outputBuffer, 4, &returned, NULL);
-		if (!success)
-		{
-			printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-		}
-		else
-		{
-			if (verbose) printf("IR Camera Sensitivity Block 1\n");
-			ResetEvent(hEventCmdFinished);
-		}
-		// Wait for the end of the command
-		WaitForSingleObject(hEventCmdFinished, 1000);
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
+			// State: Camera configuration, write 0x08 to register 0xb00030 (Start configuration)
+			cmd_inputBuffer = (BYTE*)malloc(36);
+			cmd_inputBuffer[0] = 0x1F; // Length of the IOCTL message
+			cmd_inputBuffer[1] = 0x00;
+			cmd_inputBuffer[2] = 0x00;
+			cmd_inputBuffer[3] = 0x00;
+			cmd_inputBuffer[4] = 0x02; // ACL data
+			cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
+			cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
+			cmd_inputBuffer[7] = 0x1B; // Length of the ACL message
+			cmd_inputBuffer[8] = 0x00; // -
+			cmd_inputBuffer[9] = 0x17;  // Length of the L2CAP message
+			cmd_inputBuffer[10] = 0x00; // -
+			cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
+			cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
+			cmd_inputBuffer[13] = 0xA2; // Output report
+			cmd_inputBuffer[14] = 0x16; // Write memory or registers
+			cmd_inputBuffer[15] = 0x04; // Write to registers
+			cmd_inputBuffer[16] = 0xB0; // Offset
+			cmd_inputBuffer[17] = 0x00; // -
+			cmd_inputBuffer[18] = 0x30; // -
+			cmd_inputBuffer[19] = 0x01; // Size of the value
+			cmd_inputBuffer[20] = 0x01;	// Value padded to 16 bytes (Start configuration)
+			cmd_inputBuffer[21] = 0x00; // -
+			cmd_inputBuffer[22] = 0x00; // -
+			cmd_inputBuffer[23] = 0x00; // -
+			cmd_inputBuffer[24] = 0x00; // -
+			cmd_inputBuffer[25] = 0x00; // -
+			cmd_inputBuffer[26] = 0x00; // -
+			cmd_inputBuffer[27] = 0x00; // -
+			cmd_inputBuffer[28] = 0x00; // -
+			cmd_inputBuffer[29] = 0x00; // -
+			cmd_inputBuffer[30] = 0x00; // -
+			cmd_inputBuffer[31] = 0x00; // -
+			cmd_inputBuffer[32] = 0x00; // -
+			cmd_inputBuffer[33] = 0x00; // -
+			cmd_inputBuffer[34] = 0x00; // -
+			cmd_inputBuffer[35] = 0x00; // -
+			cmd_outputBuffer = (BYTE*)malloc(4);
+			wiimotes[i]->state = STATE_WIIMOTE_START_CAMERA_CONFIGURATION;
+			while (mainLoop_continue && wiimotes[i]->state == STATE_WIIMOTE_START_CAMERA_CONFIGURATION)
+			{
+				success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 36, cmd_outputBuffer, 4, &returned, NULL);
+				if (!success)
+				{
+					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+				}
+				else
+				{
+					if (verbose) printf("IR Camera Start configuration\n");
+					ResetEvent(hEventCmdFinished);
+				}
+				// Wait for the end of the command
+				WaitForSingleObject(hEventCmdFinished, 1000);
+			}
+			free(cmd_inputBuffer);
+			free(cmd_outputBuffer);
 
-	// State: Camera configuration, write Sensitivity Block 2 to registers at 0xb0001a
-	cmd_inputBuffer = (BYTE*)malloc(36);
-	cmd_inputBuffer[0] = 0x1F; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
-	cmd_inputBuffer[7] = 0x1B; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = 0x17;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
-	cmd_inputBuffer[13] = 0xA2;	// Output report
-	cmd_inputBuffer[14] = 0x16;	// Write Memory and Registers
-	cmd_inputBuffer[15] = 0x04;	// Control registers
-	cmd_inputBuffer[16] = 0xB0;	// register 0xb0001a
-	cmd_inputBuffer[17] = 0x00;	// -
-	cmd_inputBuffer[18] = 0x1A;	// -
-	cmd_inputBuffer[19] = 0x02;	// Length of the data
-	cmd_inputBuffer[20] = 0x63; // Data (Wii level 3)
-	cmd_inputBuffer[21] = 0x03; // -
-	cmd_inputBuffer[22] = 0x00; // Padding
-	cmd_inputBuffer[23] = 0x00; // -
-	cmd_inputBuffer[24] = 0x00; // -
-	cmd_inputBuffer[25] = 0x00; // -
-	cmd_inputBuffer[26] = 0x00; // -
-	cmd_inputBuffer[27] = 0x00; // -
-	cmd_inputBuffer[28] = 0x00; // -
-	cmd_inputBuffer[29] = 0x00; // -
-	cmd_inputBuffer[30] = 0x00; // -
-	cmd_inputBuffer[31] = 0x00; // -
-	cmd_inputBuffer[32] = 0x00; // -
-	cmd_inputBuffer[33] = 0x00; // -
-	cmd_inputBuffer[34] = 0x00; // -
-	cmd_inputBuffer[35] = 0x00; // -
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	wiimotes[i]->state = STATE_WIIMOTE_CONFIGURE_CAMERA_SENSIBILITY_2;
-	while (mainLoop_continue && wiimotes[i]->state == STATE_WIIMOTE_CONFIGURE_CAMERA_SENSIBILITY_2)
-	{
-		printBuffer2HexString(cmd_inputBuffer, 36);
-		success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 36, cmd_outputBuffer, 4, &returned, NULL);
-		if (!success)
-		{
-			printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-		}
-		else
-		{
-			if (verbose) printf("IR Camera Sensitivity Block 2\n");
-			ResetEvent(hEventCmdFinished);
-		}
-		// Wait for the end of the command
-		WaitForSingleObject(hEventCmdFinished, 1000);
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
+			// State: Camera configuration, write Sensitivity Block 1 to registers at 0xb00000
+			cmd_inputBuffer = (BYTE*)malloc(36);
+			cmd_inputBuffer[0] = 0x1F; // Length of the IOCTL message
+			cmd_inputBuffer[1] = 0x00;
+			cmd_inputBuffer[2] = 0x00;
+			cmd_inputBuffer[3] = 0x00;
+			cmd_inputBuffer[4] = 0x02; // ACL data
+			cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
+			cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
+			cmd_inputBuffer[7] = 0x1B; // Length of the ACL message
+			cmd_inputBuffer[8] = 0x00; // -
+			cmd_inputBuffer[9] = 0x17;  // Length of the L2CAP message
+			cmd_inputBuffer[10] = 0x00; // -
+			cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
+			cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
+			cmd_inputBuffer[13] = 0xA2; // Output report
+			cmd_inputBuffer[14] = 0x16; // Write memory or registers
+			cmd_inputBuffer[15] = 0x04; // Write to registers
+			cmd_inputBuffer[16] = 0xB0; // Offset
+			cmd_inputBuffer[17] = 0x00; // -
+			cmd_inputBuffer[18] = 0x00; // -
+			cmd_inputBuffer[19] = 0x09; // Size of the value
+			cmd_inputBuffer[20] = 0x02;	// Value padded to 16 bytes (Sensitivity Wii level 3)
+			cmd_inputBuffer[21] = 0x00; // -
+			cmd_inputBuffer[22] = 0x00; // -
+			cmd_inputBuffer[23] = 0x71; // -
+			cmd_inputBuffer[24] = 0x01; // -
+			cmd_inputBuffer[25] = 0x00; // -
+			cmd_inputBuffer[26] = 0xAA; // -
+			cmd_inputBuffer[27] = 0x00; // -
+			cmd_inputBuffer[28] = 0x64; // -
+			cmd_inputBuffer[29] = 0x00; // -
+			cmd_inputBuffer[30] = 0x00; // -
+			cmd_inputBuffer[31] = 0x00; // -
+			cmd_inputBuffer[32] = 0x00; // -
+			cmd_inputBuffer[33] = 0x00; // -
+			cmd_inputBuffer[34] = 0x00; // -
+			cmd_inputBuffer[35] = 0x00; // -
+			cmd_outputBuffer = (BYTE*)malloc(4);
+			wiimotes[i]->state = STATE_WIIMOTE_CONFIGURE_CAMERA_SENSIBILITY_1;
+			while (mainLoop_continue && wiimotes[i]->state == STATE_WIIMOTE_CONFIGURE_CAMERA_SENSIBILITY_1)
+			{
+				success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 36, cmd_outputBuffer, 4, &returned, NULL);
+				if (!success)
+				{
+					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+				}
+				else
+				{
+					if (verbose) printf("IR Camera Sensitivity Block 1\n");
+					ResetEvent(hEventCmdFinished);
+				}
+				// Wait for the end of the command
+				WaitForSingleObject(hEventCmdFinished, 1000);
+			}
+			free(cmd_inputBuffer);
+			free(cmd_outputBuffer);
 
-	// State: Camera configuration, write Mode Number to register 0xb00033
-	cmd_inputBuffer = (BYTE*)malloc(36);
-	cmd_inputBuffer[0] = 0x1F; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
-	cmd_inputBuffer[7] = 0x1B; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = 0x17;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
-	cmd_inputBuffer[13] = 0xA2;	// Output report
-	cmd_inputBuffer[14] = 0x16;	// Write Memory and Registers
-	cmd_inputBuffer[15] = 0x04;	// Control registers
-	cmd_inputBuffer[16] = 0xB0;	// register 0xb00033
-	cmd_inputBuffer[17] = 0x00;	// -
-	cmd_inputBuffer[18] = 0x33;	// -
-	cmd_inputBuffer[19] = 0x01;	// Length of the data
-	cmd_inputBuffer[20] = 0x01; // Data (Mode Basic)
-	cmd_inputBuffer[21] = 0x00; // Padding
-	cmd_inputBuffer[22] = 0x00; // -
-	cmd_inputBuffer[23] = 0x00; // -
-	cmd_inputBuffer[24] = 0x00; // -
-	cmd_inputBuffer[25] = 0x00; // -
-	cmd_inputBuffer[26] = 0x00; // -
-	cmd_inputBuffer[27] = 0x00; // -
-	cmd_inputBuffer[28] = 0x00; // -
-	cmd_inputBuffer[29] = 0x00; // -
-	cmd_inputBuffer[30] = 0x00; // -
-	cmd_inputBuffer[31] = 0x00; // -
-	cmd_inputBuffer[32] = 0x00; // -
-	cmd_inputBuffer[33] = 0x00; // -
-	cmd_inputBuffer[34] = 0x00; // -
-	cmd_inputBuffer[35] = 0x00; // -
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	wiimotes[i]->state = STATE_WIIMOTE_CONFIGURE_CAMERA_MODE;
-	while (mainLoop_continue && wiimotes[i]->state == STATE_WIIMOTE_CONFIGURE_CAMERA_MODE)
-	{
-		printBuffer2HexString(cmd_inputBuffer, 36);
-		success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 36, cmd_outputBuffer, 4, &returned, NULL);
-		if (!success)
-		{
-			printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-		}
-		else
-		{
-			if (verbose) printf("IR Camera Mode number\n");
-			ResetEvent(hEventCmdFinished);
-		}
-		// Wait for the end of the command
-		WaitForSingleObject(hEventCmdFinished, 1000);
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
+			// State: Camera configuration, write Sensitivity Block 2 to registers at 0xb0001a
+			cmd_inputBuffer = (BYTE*)malloc(36);
+			cmd_inputBuffer[0] = 0x1F; // Length of the IOCTL message
+			cmd_inputBuffer[1] = 0x00;
+			cmd_inputBuffer[2] = 0x00;
+			cmd_inputBuffer[3] = 0x00;
+			cmd_inputBuffer[4] = 0x02; // ACL data
+			cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
+			cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
+			cmd_inputBuffer[7] = 0x1B; // Length of the ACL message
+			cmd_inputBuffer[8] = 0x00; // -
+			cmd_inputBuffer[9] = 0x17;  // Length of the L2CAP message
+			cmd_inputBuffer[10] = 0x00; // -
+			cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
+			cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
+			cmd_inputBuffer[13] = 0xA2; // Output report
+			cmd_inputBuffer[14] = 0x16; // Write memory or registers
+			cmd_inputBuffer[15] = 0x04; // Write to registers
+			cmd_inputBuffer[16] = 0xB0; // Offset
+			cmd_inputBuffer[17] = 0x00; // -
+			cmd_inputBuffer[18] = 0x1A; // -
+			cmd_inputBuffer[19] = 0x02; // Size of the value
+			cmd_inputBuffer[20] = 0x63;	// Value padded to 16 bytes (Sensitivity Wii level 3)
+			cmd_inputBuffer[21] = 0x03; // -
+			cmd_inputBuffer[22] = 0x00; // -
+			cmd_inputBuffer[23] = 0x00; // -
+			cmd_inputBuffer[24] = 0x00; // -
+			cmd_inputBuffer[25] = 0x00; // -
+			cmd_inputBuffer[26] = 0x00; // -
+			cmd_inputBuffer[27] = 0x00; // -
+			cmd_inputBuffer[28] = 0x00; // -
+			cmd_inputBuffer[29] = 0x00; // -
+			cmd_inputBuffer[30] = 0x00; // -
+			cmd_inputBuffer[31] = 0x00; // -
+			cmd_inputBuffer[32] = 0x00; // -
+			cmd_inputBuffer[33] = 0x00; // -
+			cmd_inputBuffer[34] = 0x00; // -
+			cmd_inputBuffer[35] = 0x00; // -
 
-	// State: Camera configuration, write 0x08 to register 0xb00030 (End configuration)
-	cmd_inputBuffer = (BYTE*)malloc(36);
-	cmd_inputBuffer[0] = 0x1F; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
-	cmd_inputBuffer[7] = 0x1B; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = 0x17;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
-	cmd_inputBuffer[13] = 0xA2;	// Output report
-	cmd_inputBuffer[14] = 0x16;	// Write Memory and Registers
-	cmd_inputBuffer[15] = 0x04;	// Control registers
-	cmd_inputBuffer[16] = 0xB0;	// register 0xb00030
-	cmd_inputBuffer[17] = 0x00;	// -
-	cmd_inputBuffer[18] = 0x30;	// -
-	cmd_inputBuffer[19] = 0x01;	// Length of the data
-	cmd_inputBuffer[20] = 0x08; // Data
-	cmd_inputBuffer[21] = 0x00; // Padding
-	cmd_inputBuffer[22] = 0x00; // -
-	cmd_inputBuffer[23] = 0x00; // -
-	cmd_inputBuffer[24] = 0x00; // -
-	cmd_inputBuffer[25] = 0x00; // -
-	cmd_inputBuffer[26] = 0x00; // -
-	cmd_inputBuffer[27] = 0x00; // -
-	cmd_inputBuffer[28] = 0x00; // -
-	cmd_inputBuffer[29] = 0x00; // -
-	cmd_inputBuffer[30] = 0x00; // -
-	cmd_inputBuffer[31] = 0x00; // -
-	cmd_inputBuffer[32] = 0x00; // -
-	cmd_inputBuffer[33] = 0x00; // -
-	cmd_inputBuffer[34] = 0x00; // -
-	cmd_inputBuffer[35] = 0x00; // -
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	wiimotes[i]->state = STATE_WIIMOTE_END_CAMERA_CONFIGURATION;
-	while (mainLoop_continue && wiimotes[i]->state == STATE_WIIMOTE_END_CAMERA_CONFIGURATION)
-	{
-		printBuffer2HexString(cmd_inputBuffer, 36);
-		success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 36, cmd_outputBuffer, 4, &returned, NULL);
-		if (!success)
-		{
-			printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-		}
-		else
-		{
-			if (verbose) printf("IR Camera End configuration\n");
-			ResetEvent(hEventCmdFinished);
-		}
-		// Wait for the end of the command
-		WaitForSingleObject(hEventCmdFinished, 1000);
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
+			cmd_outputBuffer = (BYTE*)malloc(4);
+			wiimotes[i]->state = STATE_WIIMOTE_CONFIGURE_CAMERA_SENSIBILITY_2;
+			while (mainLoop_continue && wiimotes[i]->state == STATE_WIIMOTE_CONFIGURE_CAMERA_SENSIBILITY_2)
+			{
+				success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 36, cmd_outputBuffer, 4, &returned, NULL);
+				if (!success)
+				{
+					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+				}
+				else
+				{
+					if (verbose) printf("IR Camera Sensitivity Block 2\n");
+					ResetEvent(hEventCmdFinished);
+				}
+				// Wait for the end of the command
+				WaitForSingleObject(hEventCmdFinished, 1000);
+			}
+			free(cmd_inputBuffer);
+			free(cmd_outputBuffer);
 
-	// Change report mode: add camera reading
-	cmd_inputBuffer = (BYTE*)malloc(17);
-	cmd_inputBuffer[0] = 0x0C; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
-	cmd_inputBuffer[7] = 0x08; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = 0x04;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
-	cmd_inputBuffer[13] = 0xA2;	// Output report
-	cmd_inputBuffer[14] = 0x12;	// Set Data Reporting Mode:
-	cmd_inputBuffer[15] = 0x00; // Reporting when data change
-	cmd_inputBuffer[16] = 0x37; // Core Buttons, Accelerometer, Camera, Extension
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	printBuffer2HexString(cmd_inputBuffer, 17);
-	success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 17, cmd_outputBuffer, 4, &returned, NULL);
-	if (!success)
-	{
-		printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-	}
-	else
-	{
-		if (verbose) printf("Set Data Reporting Mode with camera\n");
-		ResetEvent(hEventCmdFinished);
-		wiimotes[i]->state = STATE_WIIMOTE_READ_INPUTS;
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
+			// State: Camera configuration, write Mode Number to register 0xb00033
+			cmd_inputBuffer = (BYTE*)malloc(36);
+			cmd_inputBuffer[0] = 0x1F; // Length of the IOCTL message
+			cmd_inputBuffer[1] = 0x00;
+			cmd_inputBuffer[2] = 0x00;
+			cmd_inputBuffer[3] = 0x00;
+			cmd_inputBuffer[4] = 0x02; // ACL data
+			cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
+			cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
+			cmd_inputBuffer[7] = 0x1B; // Length of the ACL message
+			cmd_inputBuffer[8] = 0x00; // -
+			cmd_inputBuffer[9] = 0x17;  // Length of the L2CAP message
+			cmd_inputBuffer[10] = 0x00; // -
+			cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
+			cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
+			cmd_inputBuffer[13] = 0xA2; // Output report
+			cmd_inputBuffer[14] = 0x16; // Write memory or registers
+			cmd_inputBuffer[15] = 0x04; // Write to registers
+			cmd_inputBuffer[16] = 0xB0; // Offset
+			cmd_inputBuffer[17] = 0x00; // -
+			cmd_inputBuffer[18] = 0x33; // -
+			cmd_inputBuffer[19] = 0x01; // Size of the value
+			cmd_inputBuffer[20] = 0x01;	// Value padded to 16 bytes (Basic Mode)
+			cmd_inputBuffer[21] = 0x00; // -
+			cmd_inputBuffer[22] = 0x00; // -
+			cmd_inputBuffer[23] = 0x00; // -
+			cmd_inputBuffer[24] = 0x00; // -
+			cmd_inputBuffer[25] = 0x00; // -
+			cmd_inputBuffer[26] = 0x00; // -
+			cmd_inputBuffer[27] = 0x00; // -
+			cmd_inputBuffer[28] = 0x00; // -
+			cmd_inputBuffer[29] = 0x00; // -
+			cmd_inputBuffer[30] = 0x00; // -
+			cmd_inputBuffer[31] = 0x00; // -
+			cmd_inputBuffer[32] = 0x00; // -
+			cmd_inputBuffer[33] = 0x00; // -
+			cmd_inputBuffer[34] = 0x00; // -
+			cmd_inputBuffer[35] = 0x00; // -
+			cmd_outputBuffer = (BYTE*)malloc(4);
+			wiimotes[i]->state = STATE_WIIMOTE_CONFIGURE_CAMERA_MODE;
+			while (mainLoop_continue && wiimotes[i]->state == STATE_WIIMOTE_CONFIGURE_CAMERA_MODE)
+			{
+				success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 36, cmd_outputBuffer, 4, &returned, NULL);
+				if (!success)
+				{
+					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+				}
+				else
+				{
+					if (verbose) printf("IR Camera Mode number\n");
+					ResetEvent(hEventCmdFinished);
+				}
+				// Wait for the end of the command
+				WaitForSingleObject(hEventCmdFinished, 1000);
+			}
+			free(cmd_inputBuffer);
+			free(cmd_outputBuffer);
 
-	// Ask status
-	cmd_inputBuffer = (BYTE*)malloc(16);
-	cmd_inputBuffer[0] = 0x0B; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
-	cmd_inputBuffer[7] = 0x07; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = 0x03;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
-	cmd_inputBuffer[13] = 0xA2;	// Output report
-	cmd_inputBuffer[14] = 0x15;	// Set Data Reporting Mode:
-	cmd_inputBuffer[15] = 0x00; // Reporting when data change
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	printBuffer2HexString(cmd_inputBuffer, 16);
-	success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 16, cmd_outputBuffer, 4, &returned, NULL);
-	if (!success)
-	{
-		printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+			// State: Camera configuration, write 0x08 to register 0xb00030 (End configuration)
+			cmd_inputBuffer = (BYTE*)malloc(36);
+			cmd_inputBuffer[0] = 0x1F; // Length of the IOCTL message
+			cmd_inputBuffer[1] = 0x00;
+			cmd_inputBuffer[2] = 0x00;
+			cmd_inputBuffer[3] = 0x00;
+			cmd_inputBuffer[4] = 0x02; // ACL data
+			cmd_inputBuffer[5] = wiimotes[0]->connectionHandle[0];
+			cmd_inputBuffer[6] = wiimotes[0]->connectionHandle[1];
+			cmd_inputBuffer[7] = 0x1B; // Length of the ACL message
+			cmd_inputBuffer[8] = 0x00; // -
+			cmd_inputBuffer[9] = 0x17;  // Length of the L2CAP message
+			cmd_inputBuffer[10] = 0x00; // -
+			cmd_inputBuffer[11] = wiimotes[0]->hidInterruptChannel[0];
+			cmd_inputBuffer[12] = wiimotes[0]->hidInterruptChannel[1];
+			cmd_inputBuffer[13] = 0xA2; // Output report
+			cmd_inputBuffer[14] = 0x16; // Write memory or registers
+			cmd_inputBuffer[15] = 0x04; // Write to registers
+			cmd_inputBuffer[16] = 0xB0; // Offset
+			cmd_inputBuffer[17] = 0x00; // -
+			cmd_inputBuffer[18] = 0x30; // -
+			cmd_inputBuffer[19] = 0x01; // Size of the value
+			cmd_inputBuffer[20] = 0x08;	// Value padded to 16 bytes (End configuration)
+			cmd_inputBuffer[21] = 0x00; // -
+			cmd_inputBuffer[22] = 0x00; // -
+			cmd_inputBuffer[23] = 0x00; // -
+			cmd_inputBuffer[24] = 0x00; // -
+			cmd_inputBuffer[25] = 0x00; // -
+			cmd_inputBuffer[26] = 0x00; // -
+			cmd_inputBuffer[27] = 0x00; // -
+			cmd_inputBuffer[28] = 0x00; // -
+			cmd_inputBuffer[29] = 0x00; // -
+			cmd_inputBuffer[30] = 0x00; // -
+			cmd_inputBuffer[31] = 0x00; // -
+			cmd_inputBuffer[32] = 0x00; // -
+			cmd_inputBuffer[33] = 0x00; // -
+			cmd_inputBuffer[34] = 0x00; // -
+			cmd_inputBuffer[35] = 0x00; // -
+			cmd_outputBuffer = (BYTE*)malloc(4);
+			wiimotes[i]->state = STATE_WIIMOTE_END_CAMERA_CONFIGURATION;
+			while (mainLoop_continue && wiimotes[i]->state == STATE_WIIMOTE_END_CAMERA_CONFIGURATION)
+			{
+				success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 36, cmd_outputBuffer, 4, &returned, NULL);
+				if (!success)
+				{
+					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+				}
+				else
+				{
+					if (verbose) printf("IR Camera End configuration\n");
+					ResetEvent(hEventCmdFinished);
+				}
+				// Wait for the end of the command
+				WaitForSingleObject(hEventCmdFinished, 1000);
+			}
+			free(cmd_inputBuffer);
+			free(cmd_outputBuffer);
+
+			// Change report mode: add camera reading
+			cmd_inputBuffer = (BYTE*)malloc(17);
+			cmd_inputBuffer[0] = 0x0C; // Length of the IOCTL message
+			cmd_inputBuffer[1] = 0x00;
+			cmd_inputBuffer[2] = 0x00;
+			cmd_inputBuffer[3] = 0x00;
+			cmd_inputBuffer[4] = 0x02; // ACL data
+			cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
+			cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
+			cmd_inputBuffer[7] = 0x08; // Length of the ACL message
+			cmd_inputBuffer[8] = 0x00; // -
+			cmd_inputBuffer[9] = 0x04;  // Length of the L2CAP message
+			cmd_inputBuffer[10] = 0x00; // -
+			cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
+			cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
+			cmd_inputBuffer[13] = 0xA2; // Output report
+			cmd_inputBuffer[14] = 0x12; // Set data reporting mode
+			cmd_inputBuffer[15] = 0x00; // Report only when data has changed
+			cmd_inputBuffer[16] = 0x37; // Core Buttons and Accelerometer with 10 IR bytes and 6 Extension Bytes
+			cmd_outputBuffer = (BYTE*)malloc(4);
+			success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 17, cmd_outputBuffer, 4, &returned, NULL);
+			if (!success)
+			{
+				printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+			}
+			else
+			{
+				if (verbose) printf("Set Data Reporting Mode with camera\n");
+				ResetEvent(hEventCmdFinished);
+				wiimotes[i]->state = STATE_WIIMOTE_READ_INPUTS;
+			}
+			free(cmd_inputBuffer);
+			free(cmd_outputBuffer);
+		}
 	}
-	else
-	{
-		if (verbose) printf("Ask status\n");
-		ResetEvent(hEventCmdFinished);
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
 }
 
 int mainLoop_run(BOOL _verbose)
@@ -1750,541 +1660,13 @@ int mainLoop_run(BOOL _verbose)
 	free(cmd_inputBuffer);
 	free(cmd_outputBuffer);
 
-	// Change report mode of connected Wiimotes
-	//for (int i = 0; i < NUMBER_OF_WIIMOTES; i++)
-	//{
-	//	if (wiimotes[i] != NULL && wiimotes[i]->state != STATE_FINISHED)
-	//	{
-	//		// State: Set report mode of the Wiimote
-	//		cmd_inputBuffer = (BYTE*)malloc(17);
-	//		cmd_inputBuffer[0] = 0x0C; // Length of the IOCTL message
-	//		cmd_inputBuffer[1] = 0x00;
-	//		cmd_inputBuffer[2] = 0x00;
-	//		cmd_inputBuffer[3] = 0x00;
-	//		cmd_inputBuffer[4] = 0x02; // ACL data
-	//		cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
-	//		cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
-	//		cmd_inputBuffer[7] = 0x08; // Length of the ACL message
-	//		cmd_inputBuffer[8] = 0x00; // -
-	//		cmd_inputBuffer[9] = 0x04;  // Length of the L2CAP message
-	//		cmd_inputBuffer[10] = 0x00; // -
-	//		cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
-	//		cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
-	//		cmd_inputBuffer[13] = 0xA2;	// Output report
-	//		cmd_inputBuffer[14] = 0x12;	// Set Data Reporting Mode:
-	//		cmd_inputBuffer[15] = 0x00; // Reporting when data change
-	//		cmd_inputBuffer[16] = 0x31; // Core Buttons and Accelerometer
-	//		cmd_outputBuffer = (BYTE*)malloc(4);
-	//		success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 17, cmd_outputBuffer, 4, &returned, NULL);
-	//		if (!success)
-	//		{
-	//			printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-	//			exit_status = EXIT_FAILURE;
-	//		}
-	//		else
-	//		{
-	//			if (verbose) printf("Set Data Reporting Mode without camera\n");
-	//			ResetEvent(hEventCmdFinished);
-	//			wiimotes[i]->state = STATE_WIIMOTE_READ_INPUTS;
-	//		}
-	//		free(cmd_inputBuffer);
-	//		free(cmd_outputBuffer);
-	//	}
-	//}
+	activateAndConfigureCamera();
 
-	Sleep(5000);
-	BYTE inputBuffer2[] = { 0xa2, 0x12, 0x00, 0x31 };
-	DWORD inputBufferLength = sizeof(inputBuffer2);
-
-	cmd_inputBuffer = (BYTE*)malloc(13 + inputBufferLength);
-	cmd_inputBuffer[0] = 8 + inputBufferLength; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[0]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[0]->connectionHandle[1];
-	cmd_inputBuffer[7] = 4 + inputBufferLength; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = inputBufferLength;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[0]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[0]->hidInterruptChannel[1];
-	memcpy(cmd_inputBuffer + 13, inputBuffer2, inputBufferLength);
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 13 + inputBufferLength, cmd_outputBuffer, 4, &returned, NULL);
-	if (!success)
-	{
-		printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-		exit_status = EXIT_FAILURE;
-	}
-	else
-	{
-		printf("Mode 0x31\n");
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
-
-	Sleep(5000);
-	BYTE inputBuffer3[] = { 0xa2, 0x13, 0x06 };
-	inputBufferLength = sizeof(inputBuffer3);
-
-	cmd_inputBuffer = (BYTE*)malloc(13 + inputBufferLength);
-	cmd_inputBuffer[0] = 8 + inputBufferLength; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[0]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[0]->connectionHandle[1];
-	cmd_inputBuffer[7] = 4 + inputBufferLength; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = inputBufferLength;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[0]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[0]->hidInterruptChannel[1];
-	memcpy(cmd_inputBuffer + 13, inputBuffer3, inputBufferLength);
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 13 + inputBufferLength, cmd_outputBuffer, 4, &returned, NULL);
-	if (!success)
-	{
-		printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-		exit_status = EXIT_FAILURE;
-	}
-	else
-	{
-		printf("Report 0x13\n");
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
-
-	Sleep(5000);
-	BYTE inputBuffer4[] = { 0xa2, 0x1a, 0x06 };
-	inputBufferLength = sizeof(inputBuffer4);
-
-	cmd_inputBuffer = (BYTE*)malloc(13 + inputBufferLength);
-	cmd_inputBuffer[0] = 8 + inputBufferLength; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[0]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[0]->connectionHandle[1];
-	cmd_inputBuffer[7] = 4 + inputBufferLength; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = inputBufferLength;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[0]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[0]->hidInterruptChannel[1];
-	memcpy(cmd_inputBuffer + 13, inputBuffer4, inputBufferLength);
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 13 + inputBufferLength, cmd_outputBuffer, 4, &returned, NULL);
-	if (!success)
-	{
-		printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-		exit_status = EXIT_FAILURE;
-	}
-	else
-	{
-		printf("Report 0x1A\n");
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
-
-	Sleep(5000);
-	BYTE inputBuffer5[] = { 0xa2, 0x16, 0x04, 0xb0, 0x00, 0x30, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
-	inputBufferLength = sizeof(inputBuffer5);
-
-	cmd_inputBuffer = (BYTE*)malloc(13 + inputBufferLength);
-	cmd_inputBuffer[0] = 8 + inputBufferLength; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[0]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[0]->connectionHandle[1];
-	cmd_inputBuffer[7] = 4 + inputBufferLength; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = inputBufferLength;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[0]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[0]->hidInterruptChannel[1];
-	memcpy(cmd_inputBuffer + 13, inputBuffer5, inputBufferLength);
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 13 + inputBufferLength, cmd_outputBuffer, 4, &returned, NULL);
-	if (!success)
-	{
-		printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-		exit_status = EXIT_FAILURE;
-	}
-	else
-	{
-		printf("Config 1\n");
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
-
-	Sleep(5000);
-	BYTE inputBuffer6[] = { 0xa2, 0x16, 0x04, 0xb0, 0x00, 0x00, 0x09, 0x02, 0x00, 0x00, 0x71, 0x01, 0x00, 0xaa, 0x00, 0x64, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
-	inputBufferLength = sizeof(inputBuffer6);
-
-	cmd_inputBuffer = (BYTE*)malloc(13 + inputBufferLength);
-	cmd_inputBuffer[0] = 8 + inputBufferLength; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[0]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[0]->connectionHandle[1];
-	cmd_inputBuffer[7] = 4 + inputBufferLength; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = inputBufferLength;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[0]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[0]->hidInterruptChannel[1];
-	memcpy(cmd_inputBuffer + 13, inputBuffer6, inputBufferLength);
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 13 + inputBufferLength, cmd_outputBuffer, 4, &returned, NULL);
-	if (!success)
-	{
-		printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-		exit_status = EXIT_FAILURE;
-	}
-	else
-	{
-		printf("Config 2\n");
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
-
-	Sleep(5000);
-	BYTE inputBuffer7[] = { 0xa2, 0x16, 0x04, 0xb0, 0x00, 0x1a, 0x02, 0x63, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
-	inputBufferLength = sizeof(inputBuffer7);
-
-	cmd_inputBuffer = (BYTE*)malloc(13 + inputBufferLength);
-	cmd_inputBuffer[0] = 8 + inputBufferLength; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[0]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[0]->connectionHandle[1];
-	cmd_inputBuffer[7] = 4 + inputBufferLength; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = inputBufferLength;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[0]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[0]->hidInterruptChannel[1];
-	memcpy(cmd_inputBuffer + 13, inputBuffer7, inputBufferLength);
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 13 + inputBufferLength, cmd_outputBuffer, 4, &returned, NULL);
-	if (!success)
-	{
-		printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-		exit_status = EXIT_FAILURE;
-	}
-	else
-	{
-		printf("Config 3\n");
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
-
-	Sleep(5000);
-	BYTE inputBuffer8[] = { 0xa2, 0x16, 0x04, 0xb0, 0x00, 0x33, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
-	inputBufferLength = sizeof(inputBuffer8);
-
-	cmd_inputBuffer = (BYTE*)malloc(13 + inputBufferLength);
-	cmd_inputBuffer[0] = 8 + inputBufferLength; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[0]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[0]->connectionHandle[1];
-	cmd_inputBuffer[7] = 4 + inputBufferLength; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = inputBufferLength;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[0]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[0]->hidInterruptChannel[1];
-	memcpy(cmd_inputBuffer + 13, inputBuffer8, inputBufferLength);
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 13 + inputBufferLength, cmd_outputBuffer, 4, &returned, NULL);
-	if (!success)
-	{
-		printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-		exit_status = EXIT_FAILURE;
-	}
-	else
-	{
-		printf("Config 4\n");
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
-
-	Sleep(5000);
-	BYTE inputBuffer9[] = { 0xa2, 0x16, 0x04, 0xb0, 0x00, 0x30, 0x01, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
-	inputBufferLength = sizeof(inputBuffer9);
-
-	cmd_inputBuffer = (BYTE*)malloc(13 + inputBufferLength);
-	cmd_inputBuffer[0] = 8 + inputBufferLength; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[0]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[0]->connectionHandle[1];
-	cmd_inputBuffer[7] = 4 + inputBufferLength; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = inputBufferLength;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[0]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[0]->hidInterruptChannel[1];
-	memcpy(cmd_inputBuffer + 13, inputBuffer9, inputBufferLength);
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 13 + inputBufferLength, cmd_outputBuffer, 4, &returned, NULL);
-	if (!success)
-	{
-		printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-		exit_status = EXIT_FAILURE;
-	}
-	else
-	{
-		printf("Config 5\n");
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
-
-	Sleep(5000);
-	BYTE inputBuffer10[] = { 0xa2, 0x12, 0x00, 0x37 };
-	inputBufferLength = sizeof(inputBuffer10);
-
-	cmd_inputBuffer = (BYTE*)malloc(13 + inputBufferLength);
-	cmd_inputBuffer[0] = 8 + inputBufferLength; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[0]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[0]->connectionHandle[1];
-	cmd_inputBuffer[7] = 4 + inputBufferLength; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = inputBufferLength;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[0]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[0]->hidInterruptChannel[1];
-	memcpy(cmd_inputBuffer + 13, inputBuffer10, inputBufferLength);
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 13 + inputBufferLength, cmd_outputBuffer, 4, &returned, NULL);
-	if (!success)
-	{
-		printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-		exit_status = EXIT_FAILURE;
-	}
-	else
-	{
-		printf("Mode 0x37 (1)\n");
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
-
-	Sleep(5000);
-	BYTE inputBuffer11[] = { 0xa2, 0x15, 0x00 };
-	inputBufferLength = sizeof(inputBuffer11);
-
-	cmd_inputBuffer = (BYTE*)malloc(13 + inputBufferLength);
-	cmd_inputBuffer[0] = 8 + inputBufferLength; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[0]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[0]->connectionHandle[1];
-	cmd_inputBuffer[7] = 4 + inputBufferLength; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = inputBufferLength;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[0]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[0]->hidInterruptChannel[1];
-	memcpy(cmd_inputBuffer + 13, inputBuffer11, inputBufferLength);
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 13 + inputBufferLength, cmd_outputBuffer, 4, &returned, NULL);
-	if (!success)
-	{
-		printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-		exit_status = EXIT_FAILURE;
-	}
-	else
-	{
-		printf("Report 0x15 (1)\n");
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
-
-	Sleep(5000);
-	BYTE inputBuffer12[] = { 0xa2, 0x12, 0x00, 0x37 };
-	inputBufferLength = sizeof(inputBuffer12);
-
-	cmd_inputBuffer = (BYTE*)malloc(13 + inputBufferLength);
-	cmd_inputBuffer[0] = 8 + inputBufferLength; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[0]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[0]->connectionHandle[1];
-	cmd_inputBuffer[7] = 4 + inputBufferLength; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = inputBufferLength;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[0]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[0]->hidInterruptChannel[1];
-	memcpy(cmd_inputBuffer + 13, inputBuffer12, inputBufferLength);
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 13 + inputBufferLength, cmd_outputBuffer, 4, &returned, NULL);
-	if (!success)
-	{
-		printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-		exit_status = EXIT_FAILURE;
-	}
-	else
-	{
-		printf("Mode 0x37 (2)\n");
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
-
-	Sleep(5000);
-	BYTE inputBuffer13[] = { 0xa2, 0x15, 0x00 };
-	inputBufferLength = sizeof(inputBuffer13);
-
-	cmd_inputBuffer = (BYTE*)malloc(13 + inputBufferLength);
-	cmd_inputBuffer[0] = 8 + inputBufferLength; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[0]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[0]->connectionHandle[1];
-	cmd_inputBuffer[7] = 4 + inputBufferLength; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = inputBufferLength;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[0]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[0]->hidInterruptChannel[1];
-	memcpy(cmd_inputBuffer + 13, inputBuffer13, inputBufferLength);
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 13 + inputBufferLength, cmd_outputBuffer, 4, &returned, NULL);
-	if (!success)
-	{
-		printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-		exit_status = EXIT_FAILURE;
-	}
-	else
-	{
-		printf("Report 0x15 (2)\n");
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
-
-	Sleep(5000);
-	BYTE inputBuffer14[] = { 0xa2, 0x12, 0x00, 0x37 };
-	inputBufferLength = sizeof(inputBuffer14);
-
-	cmd_inputBuffer = (BYTE*)malloc(13 + inputBufferLength);
-	cmd_inputBuffer[0] = 8 + inputBufferLength; // Length of the IOCTL message
-	cmd_inputBuffer[1] = 0x00;
-	cmd_inputBuffer[2] = 0x00;
-	cmd_inputBuffer[3] = 0x00;
-	cmd_inputBuffer[4] = 0x02; // ACL data
-	cmd_inputBuffer[5] = wiimotes[0]->connectionHandle[0];
-	cmd_inputBuffer[6] = wiimotes[0]->connectionHandle[1];
-	cmd_inputBuffer[7] = 4 + inputBufferLength; // Length of the ACL message
-	cmd_inputBuffer[8] = 0x00; // -
-	cmd_inputBuffer[9] = inputBufferLength;  // Length of the L2CAP message
-	cmd_inputBuffer[10] = 0x00; // -
-	cmd_inputBuffer[11] = wiimotes[0]->hidInterruptChannel[0];
-	cmd_inputBuffer[12] = wiimotes[0]->hidInterruptChannel[1];
-	memcpy(cmd_inputBuffer + 13, inputBuffer14, inputBufferLength);
-	cmd_outputBuffer = (BYTE*)malloc(4);
-	success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 13 + inputBufferLength, cmd_outputBuffer, 4, &returned, NULL);
-	if (!success)
-	{
-		printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-		exit_status = EXIT_FAILURE;
-	}
-	else
-	{
-		printf("Mode 0x37 (3)\n");
-	}
-	free(cmd_inputBuffer);
-	free(cmd_outputBuffer);
-
-
-	UCHAR* inputBuffer = (UCHAR*)malloc(262);
-	char line[262 * 3 + 1];
 	// Read inputs
 	while (mainLoop_continue)
 	{
 		Sleep(100);
-		//if (configureCamera)
-		//{
-		//	activateAndConfigureCamera(0);
-		//	configureCamera = FALSE;
-		//}
-		//printf(">");
-		//if (gets_s(line, 262 * 3) == NULL) {
-		//	printf("Invalid input. Max length is %d characters.\n", 262 * 3);
-		//	continue; // try again.
-		//}
-
-		//DWORD value = 0;
-		//DWORD nbOfDigit = 0;
-		//inputBufferLength = 0;
-		//for (DWORD i = 0; i < strlen(line); i++) {
-		//	char c = line[i];
-		//	if (c >= '0' && c <= '9') {
-		//		value += c - '0';
-		//		nbOfDigit++;
-		//	}
-		//	else if (c >= 'A' && c <= 'F') {
-		//		value += c - 'A' + 10;
-		//		nbOfDigit++;
-		//	}
-		//	else if (c >= 'a' && c <= 'f') {
-		//		value += c - 'a' + 10;
-		//		nbOfDigit++;
-		//	}
-		//	else if (nbOfDigit != 0) {
-		//		printf("Invalid input. Must be a list of bytes in hexadecimal.\n");
-		//		continue; // try again.
-		//	}
-
-		//	if (nbOfDigit == 1) {
-		//		value = value << 4;
-		//	}
-		//	else if (nbOfDigit == 2) {
-		//		inputBuffer[inputBufferLength++] = value;
-		//		value = 0;
-		//		nbOfDigit = 0;
-		//	}
-
-		//	if (inputBufferLength > 262) {
-		//		printf("Invalid input. Max number of bytes is %d.\n", 262);
-		//		continue; // try again.
-		//	}
-		//}
-		//if (nbOfDigit != 0) {
-		//	printf("Invalid input. Must be a list of bytes in hexadecimal.\n");
-		//	continue; // try again.
-		//}
-		//if (inputBuffer[0] != 0xA2) {
-		//	printf("Invalid input. Must start with A2.\n");
-		//	continue; // try again.
-		//}
 	}
-	free(inputBuffer);
 
 	// Execute the disconnections steps for all the connected Wiimotes.
 	for (int i = 0; i < NUMBER_OF_WIIMOTES; i++)
