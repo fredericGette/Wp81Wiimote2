@@ -6,30 +6,27 @@
 #define STATE_BT_RESET 0
 #define STATE_BT_INQUIRY 1
 #define STATE_BT_CONNECTION 2
-#define STATE_BT_AUTHENTICATION_REQUESTED 3
-#define STATE_BT_LINK_KEY_REQUEST_NEGATIVE_REPLY 4
-#define STATE_BT_PIN_CODE_REQUEST_REPLY 5
-#define STATE_HID_CONTROL_CONNECTION 6
-#define STATE_HID_CONTROL_CONFIGURATION 7
-#define STATE_HID_CONTROL_CONFIGURATION_RESPONSE 8
-#define STATE_HID_INTERRUPT_CONNECTION 9
-#define STATE_HID_INTERRUPT_CONFIGURATION 10
-#define STATE_HID_INTERRUPT_CONFIGURATION_RESPONSE 11
-#define STATE_WIIMOTE_SET_LEDS 12
-#define STATE_WIIMOTE_SET_DATA_REPORTING_MODE_WITHOUT_CAMERA 13
-#define STATE_WIIMOTE_READ_INPUTS 14
-#define STATE_WIIMOTE_ACTIVATE_CAMERA_1 15
-#define STATE_WIIMOTE_ACTIVATE_CAMERA_2 16
-#define STATE_WIIMOTE_START_CAMERA_CONFIGURATION 17
-#define STATE_WIIMOTE_CONFIGURE_CAMERA_SENSIBILITY_1 18
-#define STATE_WIIMOTE_CONFIGURE_CAMERA_SENSIBILITY_2 19
-#define STATE_WIIMOTE_CONFIGURE_CAMERA_MODE 20
-#define STATE_WIIMOTE_END_CAMERA_CONFIGURATION 21
-#define STATE_WIIMOTE_SET_DATA_REPORTING_MODE_WITH_CAMERA 22
-#define STATE_HID_CONTROL_DISCONNECTION 23
-#define STATE_HID_INTERRUPT_DISCONNECTION 24
-#define STATE_BT_DISCONNECTION 25
-#define STATE_FINISHED 26
+#define STATE_HID_CONTROL_CONNECTION 3
+#define STATE_HID_CONTROL_CONFIGURATION 4
+#define STATE_HID_CONTROL_CONFIGURATION_RESPONSE 5
+#define STATE_HID_INTERRUPT_CONNECTION 6
+#define STATE_HID_INTERRUPT_CONFIGURATION 7
+#define STATE_HID_INTERRUPT_CONFIGURATION_RESPONSE 8
+#define STATE_WIIMOTE_SET_LEDS 9
+#define STATE_WIIMOTE_SET_DATA_REPORTING_MODE_WITHOUT_CAMERA 10
+#define STATE_WIIMOTE_READ_INPUTS 11
+#define STATE_WIIMOTE_ACTIVATE_CAMERA_1 12
+#define STATE_WIIMOTE_ACTIVATE_CAMERA_2 13
+#define STATE_WIIMOTE_START_CAMERA_CONFIGURATION 14
+#define STATE_WIIMOTE_CONFIGURE_CAMERA_SENSIBILITY_1 15
+#define STATE_WIIMOTE_CONFIGURE_CAMERA_SENSIBILITY_2 16
+#define STATE_WIIMOTE_CONFIGURE_CAMERA_MODE 17
+#define STATE_WIIMOTE_END_CAMERA_CONFIGURATION 18
+#define STATE_WIIMOTE_SET_DATA_REPORTING_MODE_WITH_CAMERA 19
+#define STATE_HID_CONTROL_DISCONNECTION 20
+#define STATE_HID_INTERRUPT_DISCONNECTION 21
+#define STATE_BT_DISCONNECTION 22
+#define STATE_FINISHED 23
 
 typedef struct _Wiimote {
 	BYTE btAddr[6];
@@ -59,7 +56,6 @@ static DWORD previousMsgCount;
 static DWORD msgCount;
 static DWORD tickCount;
 static BOOL verbose;
-static BOOL configureCamera;
 
 // Debug helper
 void printBuffer2HexString(BYTE* buffer, size_t bufSize)
@@ -119,48 +115,12 @@ void storeConnectionHandle(BYTE* connectionComplete)
 		if (wiimotes[i] != NULL && memcmp(wiimotes[i]->btAddr, connectionComplete + 10, 6) == 0)
 		{
 			memcpy(wiimotes[i]->connectionHandle, connectionComplete + 8, 2);
-			wiimotes[i]->state = STATE_BT_AUTHENTICATION_REQUESTED;
-			return;
-		}
-	}
-}
-
-void processLinkKeyRequest(BYTE* linkKeyRequest)
-{
-	for (int i = 0; i < NUMBER_OF_WIIMOTES; i++)
-	{
-		if (wiimotes[i] != NULL && memcmp(wiimotes[i]->btAddr, linkKeyRequest + 7, 6) == 0)
-		{
-			wiimotes[i]->state = STATE_BT_LINK_KEY_REQUEST_NEGATIVE_REPLY;
-			return;
-		}
-	}
-}
-
-void processPinCodeRequest(BYTE* pinCodeRequest)
-{
-	for (int i = 0; i < NUMBER_OF_WIIMOTES; i++)
-	{
-		if (wiimotes[i] != NULL && memcmp(wiimotes[i]->btAddr, pinCodeRequest + 7, 6) == 0)
-		{
-			wiimotes[i]->state = STATE_BT_PIN_CODE_REQUEST_REPLY;
-			return;
-		}
-	}
-}
-
-void storeLinkKey(BYTE* linkKeyNotification)
-{
-	for (int i = 0; i < NUMBER_OF_WIIMOTES; i++)
-	{
-		if (wiimotes[i] != NULL && memcmp(wiimotes[i]->btAddr, linkKeyNotification + 7, 6) == 0)
-		{
-			// TODO: store link key
 			wiimotes[i]->state = STATE_HID_CONTROL_CONNECTION;
 			return;
 		}
 	}
 }
+
 
 void removeConnectionHandle(BYTE* disconnectionComplete)
 {
@@ -184,9 +144,6 @@ DWORD WINAPI readEvents(void* data)
 	BYTE headerCommandComplete[7] = { 0x06, 0x00, 0x00, 0x00, 0x04, 0x0E, 0x04 };
 	BYTE headerInquiryResult[8] = { 0x11, 0x00, 0x00, 0x00, 0x04, 0x02, 0x0F, 0x01 };
 	BYTE headerConnectionComplete[8] = { 0x0D, 0x00, 0x00, 0x00, 0x04, 0x03, 0x0B, 0x00 };
-	BYTE headerLinkKeyRequest[7] = { 0x08, 0x00, 0x00, 0x00, 0x04, 0x17, 0x06 };
-	BYTE headerPinCodeRequest[7] = { 0x08, 0x00, 0x00, 0x00, 0x04, 0x16, 0x06 };
-	BYTE headerLinkKeyNotification[7] = { 0x19, 0x00, 0x00, 0x00, 0x04, 0x18, 0x17 };
 	BYTE headerDisconnectionComplete[7] = { 0x06, 0x00, 0x00, 0x00, 0x04, 0x05, 0x04 };
 
 	hciControlDeviceEvt = CreateFileA("\\\\.\\wp81controldevice", GENERIC_WRITE, FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
@@ -228,27 +185,6 @@ DWORD WINAPI readEvents(void* data)
 			{
 				if (verbose) printf("Received: BT Connection OK\n");
 				storeConnectionHandle(readEvent_outputBuffer);
-				SetEvent(hEventCmdFinished);
-			}
-			// 08 00 00 00 04 17 06 60 32 33 51 E7 E0
-			else if (returned == 13 && memcmp(readEvent_outputBuffer, headerLinkKeyRequest, 7) == 0)
-			{
-				if (verbose) printf("Received: Link key request\n");
-				processLinkKeyRequest(readEvent_outputBuffer);
-				SetEvent(hEventCmdFinished);
-			}
-			// 08 00 00 00 04 16 06 60 32 33 51 E7 E0
-			else if (returned == 13 && memcmp(readEvent_outputBuffer, headerPinCodeRequest, 7) == 0)
-			{
-				if (verbose) printf("Received: Pin code request\n");
-				processPinCodeRequest(readEvent_outputBuffer);
-				SetEvent(hEventCmdFinished);
-			}
-			// 19 00 00 00 04 18 17 60 32 33 51 E7 E0 69 90 F2 AA D6 B8 12 66 25 77 4D E4 93 2C E9 87 00
-			else if (returned == 30 && memcmp(readEvent_outputBuffer, headerLinkKeyNotification, 7) == 0)
-			{
-				if (verbose) printf("Received: Link key notification\n");
-				storeLinkKey(readEvent_outputBuffer);
 				SetEvent(hEventCmdFinished);
 			}
 			else if (returned == 11 && memcmp(readEvent_outputBuffer, headerDisconnectionComplete, 7) == 0)
@@ -364,7 +300,7 @@ void printInputReport(int i, BYTE* inputReport)
 		else printf(" ");
 		if ((inputReport[16] & 0x02) > 0) printf("1");
 		else printf(" ");
-		if ((inputReport[16] & 0x04) > 0) { printf("B"); configureCamera = TRUE; }
+		if ((inputReport[16] & 0x04) > 0) printf("B");
 		else printf(" ");
 		if ((inputReport[16] & 0x08) > 0) printf("A");
 		else printf(" ");
@@ -575,16 +511,9 @@ DWORD WINAPI readAclData(void* data)
 				updateCameraState(readAcl_outputBuffer);
 				SetEvent(hEventCmdFinished);
 			}
-			else if (returned > 14 && readAcl_outputBuffer[13] == 0xA1 && readAcl_outputBuffer[14] == 0x21 && memcmp(readAcl_outputBuffer + 11, cidLocalHidInterrupt, 2) == 0)
+			else
 			{
-				// Read memory and registers data (0xA1 0x21)
-				if (verbose) printf("**** Read memory and registers data, length=%d ****\n", returned);
-				if (verbose) printBuffer2HexString(readAcl_outputBuffer, returned);
-			}
-			else if (returned > 14 && readAcl_outputBuffer[13] == 0xA1 && readAcl_outputBuffer[14] == 0x20 && memcmp(readAcl_outputBuffer + 11, cidLocalHidInterrupt, 2) == 0)
-			{
-				// Status reporting (0xA1 0x20)
-				if (verbose) printf("**** Status reporting ****\n");
+				if (verbose) printf("Received: unkown ACL message\n");
 				if (verbose) printBuffer2HexString(readAcl_outputBuffer, returned);
 			}
 		}
@@ -658,106 +587,8 @@ int connectWiimotes()
 				// Wait for the end of the Connection command
 				WaitForSingleObject(hEventCmdFinished, 2000);
 			}
-
-			// Authentication requested
-			cmd_inputBuffer = (BYTE*)malloc(10);
-			cmd_inputBuffer[0] = 0x05; // Length of the IOCTL message
-			cmd_inputBuffer[1] = 0x00;
-			cmd_inputBuffer[2] = 0x00;
-			cmd_inputBuffer[3] = 0x00;
-			cmd_inputBuffer[4] = 0x01; // Command
-			cmd_inputBuffer[5] = 0x11; // AUTHENTICATION_REQUESTED
-			cmd_inputBuffer[6] = 0x04;
-			cmd_inputBuffer[7] = 0x02;
-			cmd_inputBuffer[8] = wiimotes[i]->connectionHandle[0];
-			cmd_inputBuffer[9] = wiimotes[i]->connectionHandle[1];
-			cmd_outputBuffer = (BYTE*)malloc(4);
-			while (mainLoop_continue && wiimotes[i]->state == STATE_BT_AUTHENTICATION_REQUESTED)
-			{
-				success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 10, cmd_outputBuffer, 4, &returned, NULL);
-				if (!success)
-				{
-					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-				}
-				else
-				{
-					if (verbose) printf("Authentication requested\n");
-					ResetEvent(hEventCmdFinished);
-				}
-
-				// Wait for the end of the command
-				WaitForSingleObject(hEventCmdFinished, 2000);
-			}
-
-			// Link Key request negative reply
-			cmd_inputBuffer = (BYTE*)malloc(14);
-			cmd_inputBuffer[0] = 0x09; // Length of the IOCTL message
-			cmd_inputBuffer[1] = 0x00;
-			cmd_inputBuffer[2] = 0x00;
-			cmd_inputBuffer[3] = 0x00;
-			cmd_inputBuffer[4] = 0x01; // Command
-			cmd_inputBuffer[5] = 0x0C; // LINK_KEY_REQUEST_NEGATIVE_REPLY 
-			cmd_inputBuffer[6] = 0x04;
-			cmd_inputBuffer[7] = 0x06;
-			memcpy(cmd_inputBuffer + 8, wiimotes[i]->btAddr, 6);
-			cmd_outputBuffer = (BYTE*)malloc(4);
-			while (mainLoop_continue && wiimotes[i]->state == STATE_BT_LINK_KEY_REQUEST_NEGATIVE_REPLY)
-			{
-				success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 14, cmd_outputBuffer, 4, &returned, NULL);
-				if (!success)
-				{
-					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-				}
-				else
-				{
-					if (verbose) printf("Link Key request negative reply\n");
-					ResetEvent(hEventCmdFinished);
-				}
-
-				// Wait for the end of the command
-				WaitForSingleObject(hEventCmdFinished, 2000);
-			}
-
-			// Pin code request reply
-			cmd_inputBuffer = (BYTE*)malloc(31);
-			cmd_inputBuffer[0] = 0x1A; // Length of the IOCTL message
-			cmd_inputBuffer[1] = 0x00;
-			cmd_inputBuffer[2] = 0x00;
-			cmd_inputBuffer[3] = 0x00;
-			cmd_inputBuffer[4] = 0x01; // Command
-			cmd_inputBuffer[5] = 0x0D; // PIN_CODE_REQUEST_REPLY  
-			cmd_inputBuffer[6] = 0x04;
-			cmd_inputBuffer[7] = 0x17;
-			memcpy(cmd_inputBuffer + 8, wiimotes[i]->btAddr, 6);
-			cmd_inputBuffer[14] = 0x06; // Pin code length
-			memcpy(cmd_inputBuffer + 15, wiimotes[i]->btAddr, 6); // Pin code is the Bluetooth address
-			cmd_inputBuffer[21] = 0x00;
-			cmd_inputBuffer[22] = 0x00;
-			cmd_inputBuffer[23] = 0x00;
-			cmd_inputBuffer[24] = 0x00;
-			cmd_inputBuffer[25] = 0x00;
-			cmd_inputBuffer[26] = 0x00;
-			cmd_inputBuffer[27] = 0x00;
-			cmd_inputBuffer[28] = 0x00;
-			cmd_inputBuffer[29] = 0x00;
-			cmd_inputBuffer[30] = 0x00;
-			cmd_outputBuffer = (BYTE*)malloc(4);
-			while (mainLoop_continue && wiimotes[i]->state == STATE_BT_PIN_CODE_REQUEST_REPLY)
-			{
-				success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 31, cmd_outputBuffer, 4, &returned, NULL);
-				if (!success)
-				{
-					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-				}
-				else
-				{
-					if (verbose) printf("Pin code request reply\n");
-					ResetEvent(hEventCmdFinished);
-				}
-
-				// Wait for the end of the command
-				WaitForSingleObject(hEventCmdFinished, 2000);
-			}
+			free(cmd_inputBuffer);
+			free(cmd_outputBuffer);
 
 			// State: Open a "HID Control" channel with the remote device. 
 			// Connection request command
@@ -800,6 +631,8 @@ int connectWiimotes()
 				// Wait for the end of the Connection command
 				WaitForSingleObject(hEventCmdFinished, 2000);
 			}
+			free(cmd_inputBuffer);
+			free(cmd_outputBuffer);
 
 			// State: Configure the "HID Control" channel with the remote device. 
 			// Configuration request command (No options)
@@ -842,6 +675,8 @@ int connectWiimotes()
 				// Wait for the end of the Configuration request command
 				WaitForSingleObject(hEventCmdFinished, 2000);
 			}
+			free(cmd_inputBuffer);
+			free(cmd_outputBuffer);
 
 			// State: Repond to finish the configuration of the "HID Control" channel with the remote device. 
 			// Configuration response command (success)
@@ -881,6 +716,8 @@ int connectWiimotes()
 				ResetEvent(hEventCmdFinished);
 				wiimotes[i]->state = STATE_HID_INTERRUPT_CONNECTION;
 			}
+			free(cmd_inputBuffer);
+			free(cmd_outputBuffer);
 
 			// State: Open a "HID Interrupt" channel with the remote device. 
 			// Connection request command
@@ -923,6 +760,8 @@ int connectWiimotes()
 				// Wait for the end of the Connection command
 				WaitForSingleObject(hEventCmdFinished, 2000);
 			}
+			free(cmd_inputBuffer);
+			free(cmd_outputBuffer);
 
 			// State: Configure the "HID Interrupt" channel with the remote device. 
 			// Configuration request command (No options)
@@ -965,6 +804,8 @@ int connectWiimotes()
 				// Wait for the end of the Configuration request command
 				WaitForSingleObject(hEventCmdFinished, 2000);
 			}
+			free(cmd_inputBuffer);
+			free(cmd_outputBuffer);
 
 			// State: Respond to finish the configuration of the "HID Interrupt" channel with the remote device. 
 			// Configuration response command (success)
@@ -1004,6 +845,8 @@ int connectWiimotes()
 				ResetEvent(hEventCmdFinished);
 				wiimotes[i]->state = STATE_WIIMOTE_SET_LEDS;
 			}
+			free(cmd_inputBuffer);
+			free(cmd_outputBuffer);
 
 			// State: Set the LEDs of the Wiimote. 
 			cmd_inputBuffer = (BYTE*)malloc(16);
@@ -1061,6 +904,8 @@ int connectWiimotes()
 				ResetEvent(hEventCmdFinished);
 				wiimotes[i]->state = STATE_WIIMOTE_SET_DATA_REPORTING_MODE_WITHOUT_CAMERA;
 			}
+			free(cmd_inputBuffer);
+			free(cmd_outputBuffer);
 
 		}
 	}
