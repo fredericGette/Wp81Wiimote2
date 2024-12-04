@@ -28,7 +28,8 @@ Currently, when you start the executable it does the following steps:
 - Open and configure a *HID interrupt* channel with the Bluetooth devices.
 - Set the LED of the Wiimotes (the LED# corresponds to the order of the detection of the Wiimote).
 - Start again the *Inquiry* phase until the user chooses to stop it.
-- Read the inputs of the Wiimotes (buttons and accelerometer).
+- Activate the IR camera.
+- Read the inputs of the Wiimotes (buttons, accelerometer, IR data).
 
 To stop the executable, press Ctrl+C, then disable Bluetooth on the Windows Phone.  
 
@@ -37,11 +38,11 @@ The program displays the inputs received from the Wiimotes.
 A new line is displayed each time a button is pressed or released.  
 The format of a line is the following:  
 ```
-MMMM msg/s 1:<>v^+21BA-H ±XXX ±YYY ±ZZZ 2:<>v^+21BA-H ±XXX ±YYY ±ZZZ 3:<>v^+21BA-H ±XXX ±YYY ±ZZZ 4:<>v^+21BA-H ±XXX ±YYY ±ZZZ 
+MMMM msg/s #:<>v^+21BA-H ±XXX ±YYY ±ZZZ x1x1 y1y1 x2x2 y2y2 x3x3 y3y3 x4x4 y4y4
 ```
 Where:
 - `MMMM msg/s` is the number of ACL messages received by second.
-- `1:`, `2:` etc. is the number assigned to the Wiimote.
+- `#` is the number assigned to the Wiimote.
 - `<` is D-Pad left.
 - `>` is D-Pad right.
 - `v` is D-Pad down.
@@ -56,6 +57,14 @@ Where:
 - `±XXX` is the value of the acceleration in the X axis.
 - `±YYY` is the value of the acceleration in the Y axis.
 - `±ZZZ` is the value of the acceleration in the Z axis.
+- `x1x1` is the x coordinate of the first tracked object.
+- `y1y1` is the y coordinate of the first tracked object.
+- `x2x2` is the x coordinate of the second tracked object.
+- `y2y2` is the y coordinate of the second tracked object.
+- `x3x3` is the x coordinate of the third tracked object.
+- `y3y3` is the y coordinate of the third tracked object.
+- `x4x4` is the x coordinate of the fourth tracked object.
+- `y4y4` is the y coordinate of the fourth tracked object.
   
 ## Deployment
 
