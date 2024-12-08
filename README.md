@@ -3,26 +3,21 @@
 An other demonstration of the usage of a Wiimote with Windows Phone 8.1  
 This time, the communication is done at the HCI level.  
 Works with genuine and 3rd party Wiimotes. 
-Can connect up to 7 Wiimotes (tested with 6).
+Can connect up to 7 Wiimotes.
 
 See also my previous projects on the same topic:  
 - [Wp81Wiimote](https://github.com/fredericGette/Wp81Wiimote)
 - [Wp81WiimoteDriver](https://github.com/fredericGette/Wp81WiimoteDriver)
 
 > [!WARNING]
-> Work In Progress.
-
-> [!WARNING]
 > Currently only compatible with Nokia Lumia 520.  
 
 ## Usage
 
-TODO  
-
-Currently, when you start the executable it does the following steps:  
+Wp81wiimote2 executes the following steps:  
 - Stop the communication between the Windows Bluetooth stack and the Qualcomm Bluetooth stack.  
 - Reset the Bluetooth controller.  
-- Start *Inquiry* in a loop to detect Bluetooth devices (you have to press simultaneously the buttons 1 and 2 of the Wiimote). 
+- Start *Inquiry* in a loop to detect Bluetooth devices (you have to press simultaneously the buttons 1 and 2 of the Wiimote or the _sync button_). 
 - Establish a Bluetooth connection with the Bluetooth devices.
 - Open and configure a *HID control* channel with the Bluetooth devices.
 - Open and configure a *HID interrupt* channel with the Bluetooth devices.
@@ -31,7 +26,9 @@ Currently, when you start the executable it does the following steps:
 - Activate the IR camera.
 - Read the inputs of the Wiimotes (buttons, accelerometer, IR data).
 
-To stop the executable, press Ctrl+C, then disable Bluetooth on the Windows Phone.  
+To stop the executable, press Ctrl+C, then disable Bluetooth on the Windows Phone (to finish the pending read events).  
+
+The optional parameter `-v` increase the verbosity of the program.
 
 ![Example](Capture01.PNG)
 The program displays the inputs received from the Wiimotes.  
