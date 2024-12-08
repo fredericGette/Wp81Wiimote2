@@ -39,6 +39,7 @@ typedef struct _Wiimote {
 	BYTE buttons[2];
 	DWORD state;
 	BYTE id;
+	BYTE status[4];
 } Wiimote;
 
 static HANDLE hciControlDeviceEvt = NULL;
@@ -50,7 +51,6 @@ static BOOL mainLoop_continue;
 static BOOL readLoop_continue;
 static Wiimote* wiimotes[NUMBER_OF_WIIMOTES] = { NULL };
 static DWORD currentState;
-static BYTE currentId;
 static DWORD previousTickCount;
 static DWORD previousMsgCount;
 static DWORD msgCount;
@@ -92,6 +92,32 @@ BOOL isWiimoteAlreadyKnown(BYTE* inquiryResult)
 
 void storeRemoteDevice(BYTE* inquiryResult)
 {
+	int newId = 0;
+	// Find ID of the new wiimote
+	for (int candidateID = 1; candidateID <= NUMBER_OF_WIIMOTES; candidateID++)
+	{
+		BOOL inUse = FALSE;
+		for (int i = 0; i < NUMBER_OF_WIIMOTES; i++)
+		{
+			if (wiimotes[i] != NULL && wiimotes[i]->id == candidateID)
+			{
+				inUse = TRUE;
+				break;
+			}
+		}
+		if (!inUse)
+		{
+			newId = candidateID;
+			break;
+		}
+	}
+
+	if (newId == 0)
+	{
+		printf("Max number of wiimotes reached : %d\n", NUMBER_OF_WIIMOTES);
+		return;
+	}
+
 	for (int i = 0; i < NUMBER_OF_WIIMOTES; i++)
 	{
 		if (wiimotes[i] == NULL)
@@ -101,13 +127,13 @@ void storeRemoteDevice(BYTE* inquiryResult)
 			wiimotes[i]->pageScanRepetitionMode = inquiryResult[14];
 			memcpy(wiimotes[i]->clockOffset, inquiryResult + 20, 2);
 			wiimotes[i]->state = STATE_BT_CONNECTION;
-			wiimotes[i]->id = currentId++;
+			wiimotes[i]->id = newId;
 			wiimotes[i]->hidControlConfRequestMessageId = 0;
 			wiimotes[i]->hidInterruptConfRequestMessageId = 0;
+			wiimotes[i]->status[3] = 0x00; // Initialize battery level
 			return;
 		}
 	}
-	printf("Max number of wiimotes reached : %d\n", NUMBER_OF_WIIMOTES);
 }
 
 void storeConnectionHandle(BYTE* connectionComplete)
@@ -193,6 +219,11 @@ DWORD WINAPI readEvents(void* data)
 			else if (returned == 11 && memcmp(readEvent_outputBuffer, headerDisconnectionComplete, 7) == 0)
 			{
 				removeConnectionHandle(readEvent_outputBuffer);
+			}
+			else
+			{
+				if (verbose) printf("Received: unkown Event\n");
+				if (verbose) printBuffer2HexString(readEvent_outputBuffer, returned);
 			}
 		}
 		else
@@ -470,6 +501,19 @@ void updateCameraState(BYTE* acknowledgeOutputReport)
 	}
 }
 
+void updateStatus(BYTE* statusReport)
+{
+	for (int i = 0; i < NUMBER_OF_WIIMOTES; i++)
+	{
+		if (wiimotes[i] != NULL && wiimotes[i]->connectionHandle[0] == statusReport[5])
+		{
+			if (verbose) printf("%d: Received status report.\n", wiimotes[i]->id);
+			memcpy(wiimotes[i]->status, statusReport + 17, 4);
+			return;
+		}
+	}
+}
+
 DWORD WINAPI readAclData(void* data)
 {
 	DWORD returned;
@@ -533,13 +577,19 @@ DWORD WINAPI readAclData(void* data)
 			}
 			else if (returned > 14 && readAcl_outputBuffer[13] == 0xA1 && (readAcl_outputBuffer[14] == 0x31 || readAcl_outputBuffer[14] == 0x37) && memcmp(readAcl_outputBuffer + 11, cidLocalHidInterrupt, 2) == 0)
 			{
-				// INPUT REPORT (0xA1)
+				// INPUT REPORT (0xA1 0x31/0x37)
 				printInputReport(readAcl_outputBuffer);
 			}
 			else if (returned == 19 && readAcl_outputBuffer[13] == 0xA1 && readAcl_outputBuffer[14] == 0x22 && memcmp(readAcl_outputBuffer + 11, cidLocalHidInterrupt, 2) == 0)
 			{
 				// Acknowledge output report, return function result (0xA1 0x22)
 				updateCameraState(readAcl_outputBuffer);
+				SetEvent(hEventCmdFinished);
+			}
+			else if (returned == 21 && readAcl_outputBuffer[13] == 0xA1 && readAcl_outputBuffer[14] == 0x20 && memcmp(readAcl_outputBuffer + 11, cidLocalHidInterrupt, 2) == 0)
+			{
+				// Status report (0xA1 0x20)
+				updateStatus(readAcl_outputBuffer);
 				SetEvent(hEventCmdFinished);
 			}
 			else
@@ -566,6 +616,48 @@ void mainLoop_exit()
 {
 	printf("Terminating...\n");
 	mainLoop_continue = FALSE;
+}
+
+void disconnectWiimote(int i)
+{
+	DWORD returned;
+	BYTE* cmd_inputBuffer;
+	BYTE* cmd_outputBuffer;
+	BOOL success;
+
+	// Disconnect command
+	cmd_inputBuffer = (BYTE*)malloc(11);
+	cmd_inputBuffer[0] = 0x06; // Length of the IOCTL message
+	cmd_inputBuffer[1] = 0x00;
+	cmd_inputBuffer[2] = 0x00;
+	cmd_inputBuffer[3] = 0x00;
+	cmd_inputBuffer[4] = 0x01; // Command
+	cmd_inputBuffer[5] = 0x06; // DISCONNECT
+	cmd_inputBuffer[6] = 0x04;
+	cmd_inputBuffer[7] = 0x03;
+	cmd_inputBuffer[8] = wiimotes[i]->connectionHandle[0];
+	cmd_inputBuffer[9] = wiimotes[i]->connectionHandle[1];
+	cmd_inputBuffer[10] = 0x13; // CONNECTION TERMINATED BY USER
+	cmd_outputBuffer = (BYTE*)malloc(4);
+	success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 11, cmd_outputBuffer, 4, &returned, NULL);
+	if (!success)
+	{
+		printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+	}
+	else
+	{
+		if (verbose) printf("%d: BT disconnection\n", wiimotes[i]->id);
+	}
+	free(cmd_inputBuffer);
+	free(cmd_outputBuffer);
+
+	// Wait for disconnection complete event
+	int maxWait = 4;
+	while (wiimotes[i]->state != STATE_FINISHED && maxWait > 0)
+	{
+		Sleep(500);
+		maxWait--;
+	}
 }
 
 int connectWiimotes()
@@ -648,7 +740,8 @@ int connectWiimotes()
 			cmd_inputBuffer[20] = 0x00; // -
 			cmd_outputBuffer = (BYTE*)malloc(4);
 			wiimotes[i]->state = STATE_HID_CONTROL_CONNECTION;
-			while (mainLoop_continue && wiimotes[i]->state == STATE_HID_CONTROL_CONNECTION)
+			int maxRetries = 4;
+			while (mainLoop_continue && wiimotes[i]->state == STATE_HID_CONTROL_CONNECTION && maxRetries > 0)
 			{
 				success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 21, cmd_outputBuffer, 4, &returned, NULL);
 				if (!success)
@@ -663,9 +756,17 @@ int connectWiimotes()
 
 				// Wait for the end of the Connection command
 				WaitForSingleObject(hEventCmdFinished, 1000);
+
+				maxRetries--;
 			}
 			free(cmd_inputBuffer);
 			free(cmd_outputBuffer);
+			if (maxRetries == 0 && wiimotes[i]->state == STATE_HID_CONTROL_CONNECTION)
+			{
+				printf("Something wrong is happening. Perhaps the Bluetooth controller is in an incorrect state. Please reboot the phone and try again.\n");
+				mainLoop_continue = FALSE;
+				break;
+			}
 
 			// State: Configure the "HID Control" channel with the remote device. 
 			// Configuration request command (No options)
@@ -915,67 +1016,119 @@ int connectWiimotes()
 				wiimotes[i]->hidInterruptConfRequestMessageId = 0;
 			}
 
-			// TODO query wiimote state. When no answer: ask to retry inquiry with the "sync button" of the wiimote.
+			if (mainLoop_continue)
+			{
+				// State: Query Wiimote status. 
+				cmd_inputBuffer = (BYTE*)malloc(16);
+				cmd_inputBuffer[0] = 0x0B; // Length of the IOCTL message
+				cmd_inputBuffer[1] = 0x00;
+				cmd_inputBuffer[2] = 0x00;
+				cmd_inputBuffer[3] = 0x00;
+				cmd_inputBuffer[4] = 0x02; // ACL data
+				cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
+				cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
+				cmd_inputBuffer[7] = 0x07; // Length of the ACL message
+				cmd_inputBuffer[8] = 0x00; // -
+				cmd_inputBuffer[9] = 0x03;  // Length of the L2CAP message
+				cmd_inputBuffer[10] = 0x00; // -
+				cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
+				cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
+				cmd_inputBuffer[13] = 0xA2; // Output report
+				cmd_inputBuffer[14] = 0x15; // Status Information Request
+				cmd_inputBuffer[15] = 0x00; // Turn off rumble
+				cmd_outputBuffer = (BYTE*)malloc(4);
 
-			// State: Set the LEDs of the Wiimote. 
-			cmd_inputBuffer = (BYTE*)malloc(16);
-			cmd_inputBuffer[0] = 0x0B; // Length of the IOCTL message
-			cmd_inputBuffer[1] = 0x00;
-			cmd_inputBuffer[2] = 0x00;
-			cmd_inputBuffer[3] = 0x00;
-			cmd_inputBuffer[4] = 0x02; // ACL data
-			cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
-			cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
-			cmd_inputBuffer[7] = 0x07; // Length of the ACL message
-			cmd_inputBuffer[8] = 0x00; // -
-			cmd_inputBuffer[9] = 0x03;  // Length of the L2CAP message
-			cmd_inputBuffer[10] = 0x00; // -
-			cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
-			cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
-			cmd_inputBuffer[13] = 0xA2; // Output report
-			cmd_inputBuffer[14] = 0x11; // Player LEDs
-			// Light the LEDs corresponding to the order of detection of the Wiimote
-			switch (wiimotes[i]->id)
-			{
-			case 1:
-				cmd_inputBuffer[15] = 0x10; // Set LED 1 
-				break;
-			case 2:
-				cmd_inputBuffer[15] = 0x20; // Set LED 2 
-				break;
-			case 3:
-				cmd_inputBuffer[15] = 0x40; // Set LED 3 
-				break;
-			case 4:
-				cmd_inputBuffer[15] = 0x80; // Set LED 4 
-				break;
-			case 5:
-				cmd_inputBuffer[15] = 0x90; // Set LED 1+4 
-				break;
-			case 6:
-				cmd_inputBuffer[15] = 0xA0; // Set LED 2+4 
-				break;
-			case 7:
-				cmd_inputBuffer[15] = 0xC0; // Set LED 3+4 
-				break;
-			}
-			cmd_outputBuffer = (BYTE*)malloc(4);
-			success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 16, cmd_outputBuffer, 4, &returned, NULL);
-			if (!success)
-			{
-				printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
-			}
-			else
-			{
-				if (verbose) printf("%d: Set LEDs\n", wiimotes[i]->id);
-				printf("Wiimote #%d connected\n", wiimotes[i]->id);
-				nbConnected++;
-				ResetEvent(hEventCmdFinished);
-				wiimotes[i]->state = STATE_WIIMOTE_SET_DATA_REPORTING_MODE_WITHOUT_CAMERA;
-			}
-			free(cmd_inputBuffer);
-			free(cmd_outputBuffer);
+				success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 16, cmd_outputBuffer, 4, &returned, NULL);
+				if (!success)
+				{
+					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+				}
+				else
+				{
+					if (verbose) printf("%d: Query Wiimote status\n", wiimotes[i]->id);
+					ResetEvent(hEventCmdFinished);
+				}
 
+				// Wait for Status reporting
+				WaitForSingleObject(hEventCmdFinished, 1000);
+
+				free(cmd_inputBuffer);
+				free(cmd_outputBuffer);
+
+				if (wiimotes[i]->status[3] == 0x00)
+				{
+					// Battery level was not updated -> It means the Status reporting was not received.
+					printf("%d: L2CAP connection couldn't be established. Perhaps it's a new RVL-CNT-01-TR model. Try again with the 'sync button'.\n", wiimotes[i]->id);
+					
+					disconnectWiimote(i);
+
+					free(wiimotes[i]);
+					wiimotes[i] = NULL;
+					break;
+				}
+			}
+
+			if (mainLoop_continue)
+			{
+				// State: Set the LEDs of the Wiimote. 
+				cmd_inputBuffer = (BYTE*)malloc(16);
+				cmd_inputBuffer[0] = 0x0B; // Length of the IOCTL message
+				cmd_inputBuffer[1] = 0x00;
+				cmd_inputBuffer[2] = 0x00;
+				cmd_inputBuffer[3] = 0x00;
+				cmd_inputBuffer[4] = 0x02; // ACL data
+				cmd_inputBuffer[5] = wiimotes[i]->connectionHandle[0];
+				cmd_inputBuffer[6] = wiimotes[i]->connectionHandle[1];
+				cmd_inputBuffer[7] = 0x07; // Length of the ACL message
+				cmd_inputBuffer[8] = 0x00; // -
+				cmd_inputBuffer[9] = 0x03;  // Length of the L2CAP message
+				cmd_inputBuffer[10] = 0x00; // -
+				cmd_inputBuffer[11] = wiimotes[i]->hidInterruptChannel[0];
+				cmd_inputBuffer[12] = wiimotes[i]->hidInterruptChannel[1];
+				cmd_inputBuffer[13] = 0xA2; // Output report
+				cmd_inputBuffer[14] = 0x11; // Player LEDs
+				// Light the LEDs corresponding to the order of detection of the Wiimote
+				switch (wiimotes[i]->id)
+				{
+				case 1:
+					cmd_inputBuffer[15] = 0x10; // Set LED 1 
+					break;
+				case 2:
+					cmd_inputBuffer[15] = 0x20; // Set LED 2 
+					break;
+				case 3:
+					cmd_inputBuffer[15] = 0x40; // Set LED 3 
+					break;
+				case 4:
+					cmd_inputBuffer[15] = 0x80; // Set LED 4 
+					break;
+				case 5:
+					cmd_inputBuffer[15] = 0x90; // Set LED 1+4 
+					break;
+				case 6:
+					cmd_inputBuffer[15] = 0xA0; // Set LED 2+4 
+					break;
+				case 7:
+					cmd_inputBuffer[15] = 0xC0; // Set LED 3+4 
+					break;
+				}
+				cmd_outputBuffer = (BYTE*)malloc(4);
+				success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_WRITE_HCI, cmd_inputBuffer, 16, cmd_outputBuffer, 4, &returned, NULL);
+				if (!success)
+				{
+					printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+				}
+				else
+				{
+					if (verbose) printf("%d: Set LEDs\n", wiimotes[i]->id);
+					printf("Wiimote #%d connected\n", wiimotes[i]->id);
+					nbConnected++;
+					ResetEvent(hEventCmdFinished);
+					wiimotes[i]->state = STATE_WIIMOTE_SET_DATA_REPORTING_MODE_WITHOUT_CAMERA;
+				}
+				free(cmd_inputBuffer);
+				free(cmd_outputBuffer);
+			}
 		}
 	}
 
@@ -1456,7 +1609,6 @@ int mainLoop_run(BOOL _verbose)
 
 	mainLoop_continue = TRUE;
 	readLoop_continue = TRUE;
-	currentId = 1;
 	msgCount = 0;
 	previousMsgCount = 0;
 	previousTickCount = GetTickCount();
@@ -1474,7 +1626,8 @@ int mainLoop_run(BOOL _verbose)
 	success = DeviceIoControl(hciControlDeviceCmd, IOCTL_CONTROL_CMD, cmd_inputBuffer, 1, NULL, 0, &returned, NULL);
 	if (!success)
 	{
-		printf("Failed to send DeviceIoControl! 0x%08X", GetLastError());
+		printf("Failed to send DeviceIoControl! 0x%08X\n", GetLastError());
+		printf("Check Bluetooth is enabled.\n");
 		CloseHandle(hciControlDeviceCmd);
 		free(cmd_inputBuffer);
 		return EXIT_FAILURE;
@@ -1561,7 +1714,7 @@ int mainLoop_run(BOOL _verbose)
 		Sleep(2560); // Length x 1280ms
 
 		// Connect the newly discovered Wiimotes
-		if (!connectWiimotes() && maxRetries > 0)
+		if (connectWiimotes() == 0 && maxRetries > 0)
 		{
 			// Retries several times when no newly Wiimotes are detected/connected.
 			maxRetries--;
@@ -1577,6 +1730,21 @@ int mainLoop_run(BOOL _verbose)
 	}
 	free(cmd_inputBuffer);
 	free(cmd_outputBuffer);
+
+	// Count number of connecter wiimotes
+	int nbOfWiimotes = 0;
+	for (int i = 0; i < NUMBER_OF_WIIMOTES; i++)
+	{
+		if (wiimotes[i] != NULL && wiimotes[i]->state != STATE_FINISHED)
+		{
+			nbOfWiimotes++;
+		}
+	}
+	if (nbOfWiimotes == 0)
+	{
+		printf("No Wiimote connected. Exiting...\n");
+		mainLoop_continue = FALSE;
+	}
 
 	if (mainLoop_continue)
 		activateAndConfigureCamera();
@@ -1679,6 +1847,8 @@ int mainLoop_run(BOOL _verbose)
 				// Wait for the end of the Disconnection request command
 				WaitForSingleObject(hEventCmdFinished, 2000);
 			}
+
+			disconnectWiimote(i);
 
 			if (wiimotes[i]->state != STATE_FINISHED)
 			{
