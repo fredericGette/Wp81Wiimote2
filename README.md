@@ -14,7 +14,7 @@ See also my previous projects on the same topic:
 
 ## Usage
 
-Wp81wiimote2 executes the following steps:  
+The executable goes through the following steps:  
 - Stop the communication between the Windows Bluetooth stack and the Qualcomm Bluetooth stack.  
 - Reset the Bluetooth controller.  
 - Start *Inquiry* in a loop to detect Bluetooth devices (you have to press simultaneously the buttons 1 and 2 of the Wiimote or the _sync button_). 
