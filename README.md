@@ -35,7 +35,7 @@ The program displays the inputs received from the Wiimotes.
 A new line is displayed each time a button is pressed or released.  
 The format of a line is the following:  
 ```
-MMMM msg/s #:<>v^+21BA-H ±XXX ±YYY ±ZZZ x1x1 y1y1 x2x2 y2y2 x3x3 y3y3 x4x4 y4y4
+MMMM msg/s #:<>v^+21BA-H±XXX ±YYY ±ZZZ x1x1 y1y1 x2x2 y2y2 x3x3 y3y3 x4x4 y4y4
 ```
 Where:
 - `MMMM msg/s` is the number of ACL messages received by second.
